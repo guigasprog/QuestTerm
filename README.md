@@ -1,7 +1,7 @@
 # QuestTerm 🚀
 
 <p align="center">
-  <img src="https://i.imgur.com/link-para-sua-logo.png" alt="Logo do QuestTerm" width="200"/>
+  <img src="./app/favicon.ico" alt="Logo do QuestTerm" width="200"/>
 </p>
 
 <p align="center">
