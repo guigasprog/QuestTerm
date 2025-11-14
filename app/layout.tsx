@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "guilherme.sh",
-  description: "Um pouco sobre mim",
+  title: "QuestTerm",
+  description: "Um pouco sobre mim, Portfolio Iterativo",
 };
 
 export default function RootLayout({
