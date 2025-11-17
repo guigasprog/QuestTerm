@@ -81,8 +81,8 @@ Este projeto foi construído com foco em uma arquitetura moderna, limpa e escal�
 1.  **Clone o repositório:**
 
     ```bash
-    git clone [https://github.com/guigasprog/QuestTerm.git](https://github.com/SEU-guigasprog/QuestTerm.git)
-    cd SEU-REPOSITORIO
+    git clone https://github.com/guigasprog/QuestTerm.git
+    cd QuestTerm
     ```
 
 2.  **Instale as dependências:**
