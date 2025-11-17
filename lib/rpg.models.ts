@@ -126,6 +126,9 @@ export class Character {
 
   monsterKills: Map<string, number> = new Map();
 
+  stamina: number = 3;
+  lastStaminaRefresh: number = 0;
+
   constructor(name: string, charClass: CharacterClass) {
     this.name = name;
     this.charClass = charClass;
@@ -135,6 +138,7 @@ export class Character {
     this.expToNextLevel = 100;
     this.equipment = { weapon: null, armor: null };
     this.currentHP = this.getCombatStats().hp;
+    this.lastStaminaRefresh = Date.now();
     this.grantInitialSkills();
   }
 

@@ -49,7 +49,9 @@ type GameAction =
   | { type: 'SET_SHOP_STOCK'; payload: { stock: Item[]; timestamp: number } }
   | { type: 'BUY_ITEM'; payload: { item: Item; cost: number } }
   | { type: 'LOAD_CHARACTER'; payload: Character }
-  | { type: 'ABANDON_CHARACTER' };
+  | { type: 'ABANDON_CHARACTER' }
+  | { type: 'USE_STAMINA' }
+  | { type: 'RESTORE_GAME_STATE'; payload: Partial<GameState> };
 
 const initialGameState: GameState = {
   character: null,
@@ -62,16 +64,25 @@ const initialGameState: GameState = {
 };
 
 
-  const cloneCharacter = (char: Character): Character => {
-    // 1. Cria uma nova instância de classe
-    const newChar = new Character(char.name, char.charClass);
-    // 2. Copia todos os dados (level, hp, gold, stats, etc)
-    Object.assign(newChar, char);
-    // 3. Re-hidrata os Maps
-    newChar.skillCooldowns = new Map(char.skillCooldowns);
-    newChar.monsterKills = new Map(char.monsterKills);
-    return newChar;
-  };
+const cloneCharacter = (char: Character): Character => {
+  const newChar = new Character(char.name, char.charClass);
+  Object.assign(newChar, char);
+  newChar.skillCooldowns = new Map(char.skillCooldowns);
+  newChar.monsterKills = new Map(char.monsterKills);
+  return newChar;
+};
+
+const createHealthBar = (current: number, max: number, length: number = 20): string => {
+  const percentage = max > 0 ? (current / max) : 0;
+  const filledBars = Math.round(percentage * length);
+  const emptyBars = length - filledBars;
+  
+  // Assegura que 'current' não seja negativo para o display
+  const displayCurrent = Math.max(0, current);
+  
+  const bar = `[${'■'.repeat(filledBars)}${'-'.repeat(emptyBars)}]`;
+  return `${bar} ${(percentage * 100).toFixed(0)}% (${displayCurrent}/${max})`;
+};
 
 function gameReducer(state: GameState, action: GameAction): GameState {
   if (!state.character) {
@@ -91,6 +102,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         };
       case 'LOAD_CHARACTER':
         return { ...state, character: action.payload };
+      case 'RESTORE_GAME_STATE':
+        return { ...state, ...action.payload };
       default:
         return state;
     }
@@ -99,9 +112,17 @@ function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case 'TRAIN': {
       if (!state.character) return state;
-      const newChar = cloneCharacter(state.character); // Clone
-      newChar.baseStats[action.payload]++; // Modifique o clone
-      return { ...state, character: newChar }; // Retorne o clone
+      const newChar = cloneCharacter(state.character);
+      newChar.baseStats[action.payload]++;
+      return { ...state, character: newChar };
+    }
+
+    case 'USE_STAMINA': {
+      if (!state.character) return state;
+      const newChar = cloneCharacter(state.character);
+      newChar.stamina--;
+      newChar.lastStaminaRefresh = Date.now();
+      return { ...state, character: newChar };
     }
       
     case 'FIND_BATTLE':
@@ -143,6 +164,9 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     case 'RUN_AWAY':
       return { ...state, gameState: 'IDLE', currentMonster: null, combatLog: ["Você fugiu covardemente."] };
       
+    case 'RESTORE_GAME_STATE':
+      return { ...state, ...action.payload };
+
     case 'GAME_OVER': {
       if (!state.character) return state;
       const newChar = cloneCharacter(state.character);
@@ -330,15 +354,36 @@ export function useTerminalLogic() {
       if (savedString) {
         const savedData = JSON.parse(savedString);
         
-        const charClass = availableClasses.find(c => c.name === savedData.charClass.name);
+        const charData = savedData.character;
+        const charClass = availableClasses.find(c => c.name === charData.charClass.name);
 
         if (charClass) {
-          const newChar = new Character(savedData.name, charClass);
-          Object.assign(newChar, savedData);
-          newChar.skillCooldowns = new Map(savedData.skillCooldowns);
-          newChar.monsterKills = new Map(savedData.monsterKills);
+          const newChar = new Character(charData.name, charClass);
+          Object.assign(newChar, charData);
+          newChar.skillCooldowns = new Map(charData.skillCooldowns);
+          newChar.monsterKills = new Map(charData.monsterKills);
+          
+          if (newChar.stamina === undefined) {
+            newChar.stamina = 3;
+            newChar.lastStaminaRefresh = Date.now();
+          }
+
           dispatch({ type: 'LOAD_CHARACTER', payload: newChar });
+          
+          dispatch({ 
+            type: 'RESTORE_GAME_STATE', 
+            payload: {
+              gameState: savedData.gameState || 'IDLE',
+              currentMonster: savedData.currentMonster || null,
+              shopStock: savedData.shopStock || [],
+              shopLastRefresh: savedData.shopLastRefresh || 0
+            }
+          });
+          
           setHistory(prev => [...prev, `Jogo salvo de '${newChar.name}' (Nível ${newChar.level}) carregado.`]);
+          if (savedData.gameState === 'IN_COMBAT') {
+             setHistory(prev => [...prev, `Você ainda está em combate com ${savedData.currentMonster.name}!`]);
+          }
         }
       } else {
         setHistory(prev => [...prev, "Digite 'new game' para começar uma nova aventura."]);
@@ -348,15 +393,20 @@ export function useTerminalLogic() {
       localStorage.removeItem(LOCALSTORAGE_KEY);
       setHistory(prev => [...prev, "Save corrompido. Comece um novo jogo."]);
     }
-  }, []); 
+  }, []);
 
   useEffect(() => {
     try {
-      if (gameState.character) {
+      const { character } = gameState;
+      
+      if (character) {
         const dataToSave = { 
-          ...gameState.character, 
-          skillCooldowns: Array.from(gameState.character.skillCooldowns.entries()),
-          monsterKills: Array.from(gameState.character.monsterKills.entries()) 
+          ...gameState,
+          character: {
+            ...character, 
+            skillCooldowns: Array.from(character.skillCooldowns.entries()),
+            monsterKills: Array.from(character.monsterKills.entries()) 
+          }
         };
         localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(dataToSave));
       } else {
@@ -365,7 +415,61 @@ export function useTerminalLogic() {
     } catch (err) {
       console.error("Falha ao salvar jogo", err);
     }
-  }, [gameState.character]);
+  }, [gameState]);
+
+  const findInList = <T extends { name: string, id: string }>(
+    query: string, 
+    list: T[] 
+  ): T | undefined => {
+    
+    const uniqueList = [
+      ...new Map(list.map(item => [item.id, item])).values()
+    ];
+
+    const index = parseInt(query, 10) - 1; 
+    if (!isNaN(index) && index >= 0 && index < uniqueList.length) {
+      
+      return list.find(i => i.id === uniqueList[index].id);
+    }
+    
+    const lowerQuery = query.toLowerCase();
+    return list.find(item => item.name.toLowerCase().includes(lowerQuery));
+  };
+
+  const showCombatAbilities = (): string[] => {
+    if (!gameState.character) return ["Erro."];
+    const { knownSkills, skillCooldowns } = gameState.character;
+    if (knownSkills.length === 0) return ["Você não conhece nenhuma habilidade."];
+
+    const log = ['--- Habilidades (Combate) ---'];
+    knownSkills.forEach((skill, index) => {
+      const cooldown = skillCooldowns.get(skill.id);
+      const prefix = `  ${index + 1}. ${skill.name} (${skill.type})`;
+      if (cooldown) {
+        log.push(`${prefix} - [RECARGA: ${cooldown}t]`);
+      } else {
+        log.push(`${prefix} - [PRONTO]`);
+      }
+    });
+    return log;
+  };
+
+  const showCombatInventory = (): string[] => {
+    if (!gameState.character) return ["Erro."];
+    const potions = gameState.character.inventory.filter(i => i.type === 'Potion');
+    if (potions.length === 0) return ["Você não tem poções utilizáveis."];
+    
+    const uniquePotions = [
+      ...new Map(potions.map(item => [item.id, item])).values()
+    ];
+
+    const log = ['--- Poções (Combate) ---'];
+    uniquePotions.forEach((item, index) => {
+       const count = potions.filter(i => i.id === item.id).length;
+       log.push(`  ${index + 1}. ${item.name} (x${count})`);
+    });
+    return log;
+  };
 
   const processCombatTurn = (action: 'attack' | 'run' | { skill: Skill } | { item: Item }): string[] => {
     const { character, currentMonster } = gameState;
@@ -446,12 +550,16 @@ export function useTerminalLogic() {
             log.push(`  O ${target.name} é afetado por '${effect.effectId}'!`);
             break;
           }
-          case 'direct_damage':
-            const intDamageBonus = Math.floor(playerStats.int / 2);
-            playerDamage = effect.value + intDamageBonus;
-            currentMonster.currentHP -= playerDamage;
-            log.push(`  Causando ${effect.value} + (${intDamageBonus}) de dano!`);
+          case 'direct_damage': {
+            const intDamageBonus = Math.floor(playerStats.int / 10);
+            const totalSkillDamage = effect.value + intDamageBonus;
+            
+            playerDamage += totalSkillDamage; 
+            currentMonster.currentHP -= totalSkillDamage;
+            
+            log.push(`  Causando ${totalSkillDamage} de dano! (${effect.value} base + ${intDamageBonus} INT)`);
             break;
+          }
         }
       });
     }
@@ -607,32 +715,19 @@ export function useTerminalLogic() {
     ];
   };
 
-  const handleEquip = (args: string[]): string[] => {
-    if (!gameState.character) return ["Crie um personagem primeiro."];
-    const itemName = args.join(' ');
-    if (!itemName) return ["Uso: equip [nome do item]"];
-    
-    const item = gameState.character.inventory.find(i => i.name.toLowerCase() === itemName.toLowerCase());
-    
-    if (!item) return [`Item '${itemName}' não encontrado no inventário.`];
-    if (item.type !== 'Equipment') return [`'${item.name}' não é um item equipável.`];
-    
-    dispatch({ type: 'EQUIP_ITEM', payload: item as Equipment });
-    return [`Você equipou ${item.name}.`];
-  };
-
   const showAbilities = (): string[] => {
     if (!gameState.character) return ["Crie um personagem primeiro."];
     const { knownSkills, skillCooldowns } = gameState.character;
-    
     if (knownSkills.length === 0) return ["Você não conhece nenhuma habilidade."];
 
     return [
       '--- Suas Habilidades ---',
-      ...knownSkills.map(skill => {
+      ...knownSkills.map((skill, index) => { // Adiciona 'index'
         const cooldown = skillCooldowns.get(skill.id);
-        return `  - ${skill.name} (${skill.type}) [${cooldown ? `RECARGA: ${cooldown}t` : 'PRONTO'}]\n     ${skill.description}`;
-      })
+        // Usa o índice + 1 para a lista
+        return `  ${index + 1}. ${skill.name} (${skill.type}) [${cooldown ? `RECARGA: ${cooldown}t` : 'PRONTO'}]\n     ${skill.description}`;
+      }),
+      "Use 'cast [num/nome]' ou 'use [num/nome]' em combate."
     ];
   };
 
@@ -710,11 +805,15 @@ export function useTerminalLogic() {
     const char = gameState.character;
     const base = char.baseStats;
     const combat = char.getCombatStats();
+    
+    // --- LÓGICA DA BARRA DE VIDA ---
+    const healthBar = createHealthBar(char.currentHP, combat.hp);
+    
     const statsLines = [
       `--- STATUS: ${char.name} (O ${char.charClass.name}) ---`,
       `  Nível: ${char.level} (${char.exp} / ${char.expToNextLevel} EXP)`,
       `  Ouro:  ${char.gold} G`,
-      `  HP:    ${char.currentHP} / ${combat.hp} ${combat.hp > base.hp ? `(${base.hp}+${combat.hp - base.hp})` : ''}`,
+      `  HP:    ${healthBar}`, // <-- ATUALIZADO
       `  STR:   ${combat.str} ${combat.str > base.str ? `(${base.str}+${combat.str - base.str})` : ''}`,
       `  DEX:   ${combat.dex} ${combat.dex > base.dex ? `(${base.dex}+${combat.dex - base.dex})` : ''}`,
       `  INT:   ${combat.int} ${combat.int > base.int ? `(${base.int}+${combat.int - base.int})` : ''}`,
@@ -732,9 +831,11 @@ export function useTerminalLogic() {
   };
 
   const showMonsterStats = (monster: CombatMonster): string[] => {
+    const healthBar = createHealthBar(monster.currentHP, monster.stats.hp);
+
     return [
       `--- STATUS: ${monster.name} (Nível ${monster.minLevel}) ---`,
-      `  HP:  ${monster.currentHP} / ${monster.stats.hp}`,
+      `  HP:  ${healthBar}`, 
       `  STR: ${monster.stats.str} | DEX: ${monster.stats.dex} | INT: ${monster.stats.int}`,
       `  Efeitos: ${monster.statusEffects.length > 0 ? monster.statusEffects.map(e => e.id).join(', ') : 'Nenhum'}`,
     ];
@@ -744,14 +845,20 @@ export function useTerminalLogic() {
     if (!gameState.character || gameState.character.inventory.length === 0) {
       return ["Seu inventário está vazio."];
     }
+    
+    const inventoryList = gameState.character.inventory;
+    const uniqueItems = [ // Lista agrupada por ID
+      ...new Map(inventoryList.map(item => [item.id, item])).values()
+    ];
+    
     return [
       '--- Inventário ---',
-      ...Object.entries(
-        gameState.character.inventory.reduce((acc, item) => {
-          acc[item.name] = (acc[item.name] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>)
-      ).map(([name, count]) => `  - ${name} ${count > 1 ? `(x${count})` : ''}`)
+      ...uniqueItems.map((item, index) => { // Adiciona 'index'
+        const count = inventoryList.filter(i => i.id === item.id).length;
+        // Usa o índice + 1
+        return `  ${index + 1}. ${item.name} ${count > 1 ? `(x${count})` : ''} [${item.type}]`;
+      }),
+      "Use 'equip [num/nome]' ou 'use [num/nome]'."
     ];
   };
 
@@ -787,6 +894,7 @@ export function useTerminalLogic() {
       let responseLog: string[] = [];
       let stopExecution = false;
 
+      // --- 1. Ações Livres (Não gastam turno) ---
       if (cmd === 'stats') {
         responseLog.push(...showStats());
         if (gameState.currentMonster) {
@@ -796,7 +904,8 @@ export function useTerminalLogic() {
       }
       
       else if ((cmd === 'cast' || cmd === 'use') && args.length === 0) {
-        responseLog = (cmd === 'use') ? showInventory() : showAbilities();
+        // Usa os novos helpers de combate
+        responseLog = (cmd === 'use') ? showCombatInventory() : showCombatAbilities();
         stopExecution = true;
       }
 
@@ -805,6 +914,7 @@ export function useTerminalLogic() {
         return;
       }
 
+      // --- 2. Ações de Turno (Gastam o turno) ---
       if (cmd === 'attack' || cmd === 'a') {
         playerAction = 'attack';
       } 
@@ -814,14 +924,39 @@ export function useTerminalLogic() {
       }
       
       else if (cmd === 'cast') {
-        const skillName = args.join(' ');
-        const skill = gameState.character?.knownSkills.find(s => s.name.toLowerCase() === skillName.toLowerCase());
+        const query = args.join(' ');
+        const allSkills = gameState.character?.knownSkills || [];
+        const magicSkills = allSkills.filter(s => s.type === 'Magic');
+        const skill = findInList(query, magicSkills); // Busca por num/nome
         
         if (skill) {
-          if (skill.type !== 'Magic') {
-            responseLog = [`'${skill.name}' é uma Habilidade. Use 'use'.`];
+          const cooldownTurns = gameState.character?.skillCooldowns.get(skill.id);
+          if (cooldownTurns) {
+            responseLog = [`A habilidade '${skill.name}' está em recarga! (${cooldownTurns} turnos).`];
             stopExecution = true;
           } else {
+            playerAction = { skill };
+          }
+        } else {
+          responseLog = [`Magia '${query}' não encontrada.`];
+          stopExecution = true;
+        }
+      } 
+      
+      else if (cmd === 'use') {
+        const query = args.join(' ');
+        const allItems = gameState.character?.inventory || [];
+        const potions = allItems.filter(i => i.type === 'Potion');
+        const item = findInList(query, potions); // 1. Tenta achar Poção
+        
+        if (item) {
+          playerAction = { item };
+        } else {
+          const allSkills = gameState.character?.knownSkills || [];
+          const nonMagicSkills = allSkills.filter(s => s.type !== 'Magic');
+          const skill = findInList(query, nonMagicSkills); // 2. Tenta achar Habilidade
+          
+          if (skill) {
             const cooldownTurns = gameState.character?.skillCooldowns.get(skill.id);
             if (cooldownTurns) {
               responseLog = [`A habilidade '${skill.name}' está em recarga! (${cooldownTurns} turnos).`];
@@ -829,46 +964,14 @@ export function useTerminalLogic() {
             } else {
               playerAction = { skill };
             }
-          }
-        } else {
-          responseLog = [`Magia '${skillName}' não encontrada.`];
-          stopExecution = true;
-        }
-      } 
-      
-      else if (cmd === 'use') {
-        const name = args.join(' ');
-        const item = gameState.character?.inventory.find(i => i.name.toLowerCase() === name.toLowerCase());
-        
-        if (item) {
-          if (item.type === 'Potion') {
-            playerAction = { item };
           } else {
-            responseLog = [`Você não pode 'usar' ${item.name} em combate.`];
-            stopExecution = true;
-          }
-        } else {
-          const skill = gameState.character?.knownSkills.find(s => s.name.toLowerCase() === name.toLowerCase());
-          if (skill) {
-            if (skill.type !== 'Skill') {
-              responseLog = [`'${skill.name}' é uma Magia. Use 'cast'.`];
-              stopExecution = true;
-            } else {
-              const cooldownTurns = gameState.character?.skillCooldowns.get(skill.id);
-              if (cooldownTurns) {
-                responseLog = [`A habilidade '${skill.name}' está em recarga! (${cooldownTurns} turnos).`];
-                stopExecution = true;
-              } else {
-                playerAction = { skill };
-              }
-            }
-          } else {
-            responseLog = [`'${name}' não encontrado no inventário ou nas habilidades.`];
+            responseLog = [`'${query}' não é uma Poção ou Habilidade válida.`];
             stopExecution = true;
           }
         }
       }
 
+      // --- 3. Processamento Final do Turno ---
       if (stopExecution) {
         setHistory(prev => [...prev, ...responseLog]);
         return;
@@ -962,12 +1065,43 @@ export function useTerminalLogic() {
       case 'stats':
         response = showStats();
         break;
-      case 'train':
-        const statsPool: TrainableStat[] = ['str', 'dex', 'int'];
-        const randomStat = statsPool[Math.floor(Math.random() * statsPool.length)];
-        dispatch({ type: 'TRAIN', payload: randomStat });
-        response = [`Você treinou arduamente e aumentou sua ${randomStat.toUpperCase()}!`, "(Digite 'stats' para ver)"];
+      case 'train': {
+        if (!gameState.character) {
+          response = ["Crie um personagem primeiro."];
+          break;
+        }
+        
+        const { character } = gameState;
+        const now = Date.now();
+        const oneDay = 1000 * 60 * 60 * 24;
+        
+        // 1. Checa e reseta a stamina se 24h passaram
+        if (now - character.lastStaminaRefresh > oneDay) {
+          character.stamina = 3; // O clone vai pegar isso
+        }
+
+        // 2. Checa se o jogador pode treinar
+        if (character.stamina <= 0) {
+          const timeLeft = oneDay - (now - character.lastStaminaRefresh);
+          const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+          const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+          response = [`Você está exausto. Você pode treinar novamente em ${hours}h e ${minutes}m.`];
+          break;
+        }
+
+        // 3. Checa o atributo (str, dex, int)
+        const statToTrain = args[0]?.toLowerCase() as TrainableStat;
+        if (!['str', 'dex', 'int'].includes(statToTrain)) {
+          response = [`Uso: train [str | dex | int]. Você tem ${character.stamina} de stamina restante.`];
+          break;
+        }
+        
+        // 4. Sucesso!
+        dispatch({ type: 'TRAIN', payload: statToTrain });
+        dispatch({ type: 'USE_STAMINA' });
+        response = [`Você treinou ${statToTrain.toUpperCase()}!`, `(Stamina restante: ${character.stamina - 1})`];
         break;
+      }
       case 'inventory':
       case 'i':
         response = showInventory();
@@ -975,9 +1109,32 @@ export function useTerminalLogic() {
       case 'abilities':
         response = showAbilities();
         break;
-      case 'equip':
-        response = handleEquip(args);
+      case 'equip': {
+        if (!gameState.character) {
+          response = ["Crie um personagem primeiro."];
+          break;
+        }
+        const query = args.join(' ');
+        if (!query) {
+          response = ["Uso: equip [nome do item] ou [numero do inventário]"];
+          break;
+        }
+        
+        const item = findInList(query, gameState.character.inventory); // <-- ATUALIZADO
+        
+        if (!item) {
+          response = [`Item '${query}' não encontrado no inventário.`];
+          break;
+        }
+        if (item.type !== 'Equipment') {
+          response = [`'${item.name}' não é um item equipável.`];
+          break;
+        }
+        
+        dispatch({ type: 'EQUIP_ITEM', payload: item as Equipment });
+        response = [`Você equipou ${item.name}.`];
         break;
+      }
       case 'find':
       case 'f':
         if (args[0] === 'battle' || cmd === 'f') {
@@ -1008,16 +1165,16 @@ export function useTerminalLogic() {
           break;
         }
         
-        const name = args.join(' ');
-        if (!name) {
-          response = ["Uso: use [nome do item]"];
+        const query = args.join(' ');
+        if (!query) {
+          response = ["Uso: use [nome do item] ou [numero do inventário]"];
           break;
         }
 
-        const item = gameState.character.inventory.find(i => i.name.toLowerCase() === name.toLowerCase());
+        const item = findInList(query, gameState.character.inventory); // <-- ATUALIZADO
 
         if (!item) {
-          response = [`'${name}' não encontrado no inventário.`];
+          response = [`'${query}' não encontrado no inventário.`];
           break;
         }
 
