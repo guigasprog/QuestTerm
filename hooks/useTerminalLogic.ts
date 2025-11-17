@@ -61,6 +61,18 @@ const initialGameState: GameState = {
   shopLastRefresh: 0,
 };
 
+
+  const cloneCharacter = (char: Character): Character => {
+    // 1. Cria uma nova instância de classe
+    const newChar = new Character(char.name, char.charClass);
+    // 2. Copia todos os dados (level, hp, gold, stats, etc)
+    Object.assign(newChar, char);
+    // 3. Re-hidrata os Maps
+    newChar.skillCooldowns = new Map(char.skillCooldowns);
+    newChar.monsterKills = new Map(char.monsterKills);
+    return newChar;
+  };
+
 function gameReducer(state: GameState, action: GameAction): GameState {
   if (!state.character) {
     switch (action.type) {
@@ -86,57 +98,75 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 
   switch (action.type) {
     case 'TRAIN': {
-      state.character.baseStats[action.payload]++;
-      return { ...state };
+      if (!state.character) return state;
+      const newChar = cloneCharacter(state.character); // Clone
+      newChar.baseStats[action.payload]++; // Modifique o clone
+      return { ...state, character: newChar }; // Retorne o clone
     }
       
     case 'FIND_BATTLE':
       return { ...state, gameState: 'IN_COMBAT', currentMonster: action.payload, combatLog: [] };
     
     case 'PLAYER_ATTACK': {
-      if (!state.currentMonster) return state;
+      if (!state.currentMonster || !state.character) return state;
       const { playerDamage, monsterDamage } = action.payload;
-      state.currentMonster.currentHP -= playerDamage;
-      state.character.currentHP -= monsterDamage;
-      return { ...state };
+      
+      // O monstro também precisa ser clonado
+      const newMonster = { ...state.currentMonster }; 
+      newMonster.currentHP -= playerDamage;
+      
+      const newChar = cloneCharacter(state.character);
+      newChar.currentHP -= monsterDamage;
+      
+      return { ...state, character: newChar, currentMonster: newMonster };
     }
 
     case 'END_COMBAT': { 
-      const { exp, loot, log, gold, monsterName } = action.payload; // Pega o nome
-      state.character.gold += gold;
+      if (!state.character) return state;
+      const { exp, loot, log, gold, monsterName } = action.payload;
+      const newChar = cloneCharacter(state.character);
       
-      const currentKills = state.character.monsterKills.get(monsterName) || 0;
-      state.character.monsterKills.set(monsterName, currentKills + 1);
+      newChar.gold += gold;
       
-      const leveledUp = state.character.addExp(exp);
-      state.character.inventory.push(...loot);
+      const currentKills = newChar.monsterKills.get(monsterName) || 0;
+      newChar.monsterKills.set(monsterName, currentKills + 1);
+      
+      const leveledUp = newChar.addExp(exp); // Este método muta 'newChar'
+      newChar.inventory.push(...loot);
+      
       if (leveledUp) {
-        log.push(`*** VOCÊ SUBIU DE NÍVEL! Agora você é nível ${state.character.level}! ***`);
+        log.push(`*** VOCÊ SUBIU DE NÍVEL! Agora você é nível ${newChar.level}! ***`);
       }
-      return { ...state, gameState: 'IDLE', currentMonster: null, combatLog: log };
+      return { ...state, gameState: 'IDLE', currentMonster: null, combatLog: log, character: newChar };
     }
       
     case 'RUN_AWAY':
       return { ...state, gameState: 'IDLE', currentMonster: null, combatLog: ["Você fugiu covardemente."] };
       
     case 'GAME_OVER': {
-      state.character.exp = Math.floor(state.character.exp / 2);
-      state.character.currentHP = state.character.getCombatStats().hp;
-      return { ...state, gameState: 'IDLE', currentMonster: null, combatLog: ["Você morreu e perdeu metade do seu EXP..."] };
+      if (!state.character) return state;
+      const newChar = cloneCharacter(state.character);
+      newChar.exp = Math.floor(newChar.exp / 2);
+      newChar.currentHP = newChar.getCombatStats().hp;
+      return { ...state, gameState: 'IDLE', currentMonster: null, combatLog: ["Você morreu e perdeu metade do seu EXP..."], character: newChar };
     }
       
     case 'EQUIP_ITEM': {
+      if (!state.character) return state;
+      const newChar = cloneCharacter(state.character);
       const item = action.payload;
-      const oldItem = state.character.equipment[item.slot];
-      if (oldItem) state.character.inventory.push(oldItem);
-      state.character.inventory = state.character.inventory.filter(i => i.id !== item.id);
-      state.character.equipment[item.slot] = item;
-      state.character.currentHP = Math.min(
-        state.character.getCombatStats().hp, 
-        state.character.currentHP + (item.stats.hp || 0)
+      const oldItem = newChar.equipment[item.slot];
+      
+      if (oldItem) newChar.inventory.push(oldItem);
+      newChar.inventory = newChar.inventory.filter(i => i.id !== item.id);
+      newChar.equipment[item.slot] = item;
+      newChar.currentHP = Math.min(
+        newChar.getCombatStats().hp, 
+        newChar.currentHP + (item.stats.hp || 0)
       );
-      return { ...state };
+      return { ...state, character: newChar };
     }
+
     case 'SET_SHOP_STOCK':
       return { 
         ...state, 
@@ -146,39 +176,45 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 
     case 'BUY_ITEM':
       if (!state.character) return state;
+      const newCharBuy = cloneCharacter(state.character);
       const { item, cost } = action.payload;
-      state.character.gold -= cost;
-      state.character.inventory.push(item);
-      return { ...state };
+      newCharBuy.gold -= cost;
+      newCharBuy.inventory.push(item);
+      return { ...state, character: newCharBuy };
 
     case 'ADD_ITEM':
-      state.character.inventory.push(action.payload);
-      return { ...state };
+      if (!state.character) return state;
+      const newCharAdd = cloneCharacter(state.character);
+      newCharAdd.inventory.push(action.payload);
+      return { ...state, character: newCharAdd };
 
     case 'PLAYER_HEAL': {
       if (!state.character) return state;
+      const newCharHeal = cloneCharacter(state.character);
       const healAmount = action.payload;
-      const maxHP = state.character.getCombatStats().hp;
-      state.character.currentHP = Math.min(
+      const maxHP = newCharHeal.getCombatStats().hp;
+      newCharHeal.currentHP = Math.min(
         maxHP,
-        state.character.currentHP + healAmount
+        newCharHeal.currentHP + healAmount
       );
-      return { ...state };
+      return { ...state, character: newCharHeal };
     }
 
     case 'REMOVE_ITEM_BY_ID': {
       if (!state.character) return state;
-      const index = state.character.inventory.findIndex(i => i.id === action.payload);
+      const newCharRemove = cloneCharacter(state.character);
+      const index = newCharRemove.inventory.findIndex(i => i.id === action.payload);
       if (index > -1) {
-        state.character.inventory.splice(index, 1);
+        newCharRemove.inventory.splice(index, 1);
       }
-      return { ...state };
+      return { ...state, character: newCharRemove };
     }
 
     case 'APPLY_PLAYER_STATUS': {
       if (!state.character) return state;
-      state.character.addStatusEffect(action.payload);
-      return { ...state };
+      const newCharStatus = cloneCharacter(state.character);
+      newCharStatus.addStatusEffect(action.payload); // Método muta newCharStatus
+      return { ...state, character: newCharStatus };
     }
 
     case 'ABANDON_CHARACTER':
