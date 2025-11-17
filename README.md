@@ -81,7 +81,7 @@ Este projeto foi constru√≠do com foco em uma arquitetura moderna, limpa e escal√
 1.  **Clone o reposit√≥rio:**
 
     ```bash
-    git clone [https://github.com/SEU-USUARIO/SEU-REPOSITORIO.git](https://github.com/SEU-USUARIO/SEU-REPOSITORIO.git)
+    git clone [https://github.com/guigasprog/QuestTerm.git](https://github.com/SEU-guigasprog/QuestTerm.git)
     cd SEU-REPOSITORIO
     ```
 
@@ -102,4 +102,4 @@ Este projeto foi constru√≠do com foco em uma arquitetura moderna, limpa e escal√
 
 ---
 
-_Este projeto foi um desafio divertido de arquitetura de software, design de jogos e UI. Feito por [Seu Nome]._
+_Este projeto foi um desafio divertido de arquitetura de software, design de jogos e UI. Feito por Guilherme Delgado Martins._
