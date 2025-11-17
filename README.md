@@ -26,9 +26,9 @@ O projeto se apresenta como um terminal de linha de comando onde você pode usar
 **...Mas há um "pulo do gato" (Easter Egg):**
 O terminal também é um "motor" de jogo. Ao digitar `new game`, você inicia um mini-RPG completo, com classes, níveis, combate em turnos, loot, loja e persistência de dados.
 
-### ➡️ [Clique aqui para jogar (Live Demo)](https://SEU-USUARIO.github.io/SEU-REPOSITORIO/)
+### ➡️ [Clique aqui para jogar (Live Demo)](https://guigasprog.github.io/QuestTerm/)
 
-![Screenshot do QuestTerm](https://i.imgur.com/link-para-seu-screenshot.png)
+![Screenshot do QuestTerm](./public/image/questterm.png)
 
 ## ✨ Funcionalidades (Comandos)
 
