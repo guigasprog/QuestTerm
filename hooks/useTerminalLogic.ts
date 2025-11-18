@@ -12,6 +12,7 @@ import {
   StatusEffectId,
   MemorialEntry,
   Summon,
+  GitHubCommit,
 } from '@/lib/rpg.models';
 import { 
   CLASSES_DB,
@@ -331,6 +332,7 @@ export function useTerminalLogic() {
   const [gameState, dispatch] = useReducer(gameReducer, initialGameState);
 
   const [projects, setProjects] = useState<GitHubRepo[] | null>(null);
+  const [commits, setCommits] = useState<GitHubCommit[] | null>(null);
 
   const saveToMemorial = (character: Character) => {
     try {
@@ -418,6 +420,42 @@ export function useTerminalLogic() {
 
     fetchProjects();
   }, []);
+
+  useEffect(() => {
+    const GITHUB_USERNAME = 'guigasprog';
+    const GITHUB_REPO = 'QuestTerm'; // <--- SUBSTITUA PELO NOME EXATO DO SEU REPOSITÓRIO
+    const API_URL = `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/commits?per_page=10`;
+
+    const fetchCommits = async () => {
+      try {
+        const response = await fetch(API_URL);
+        if (!response.ok) throw new Error('Falha ao buscar commits');
+        const data: GitHubCommit[] = await response.json();
+        setCommits(data);
+      } catch (error) {
+        console.error(error);
+        setCommits([]);
+      }
+    };
+
+    fetchCommits();
+  }, []);
+
+  const showPatchNotes = (): string[] => {
+    if (commits === null) return ["Carregando Patch Notes..."];
+    if (commits.length === 0) return ["Não foi possível carregar os commits recentes."];
+
+    return [
+      "--- Patch Notes (Últimos Commits) ---",
+      ...commits.map((c) => {
+        // Pega apenas a primeira linha da mensagem (Título)
+        const title = c.commit.message.split('\n')[0];
+        const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
+        return `  [${date}] ${title}`;
+      }),
+      "  (Digite 'open repo' para ver o código completo)"
+    ];
+  };
 
   useEffect(() => {
     try {
@@ -853,6 +891,7 @@ export function useTerminalLogic() {
     '--- Comandos do Portfólio ---',
     '  help           - Mostra esta lista de ajuda.',
     '  projects       - Exibe meus projetos do GitHub.',
+    '  pn | patchnotes - Mostra as últimas atualizações do sistema (commits).',
     '  open [numero]  - Abre um projeto no GitHub.',
     '  skills         - Lista minhas habilidades técnicas.',
     '  contact        - Mostra minhas informações de contato.',
@@ -1281,6 +1320,14 @@ export function useTerminalLogic() {
 
       case 'help':
         response = showHelp();
+        break;
+      case 'pn':
+      case 'patchnotes':
+        response = showPatchNotes();
+        break;
+      case 'repo':
+        window.open('https://github.com/guigasprog/QuestTerm', '_blank');
+        response = ["Abrindo repositório oficial..."];
         break;
       case 'projects':
         response = showPortfolio();

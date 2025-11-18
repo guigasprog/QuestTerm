@@ -244,74 +244,83 @@ export const CLASSES_DB: Record<string, CharacterClass> = {
 
 // --- 6. MONSTROS (Bosses e Níveis) ---
 export const MONSTERS_DB: Monster[] = [
-  // Nível 1-2
-  { id: 'm01', name: 'Slime', stats: { hp: 10, str: 2, dex: 1, int: 1 }, expReward: 10, minLevel: 1, lootTable: [
-    { item: ITEMS_DB['gold_coin'], dropChance: 0.5 }
+  { id: 'm01', name: 'Slime', stats: { hp: 10, str: 2, dex: 1, int: 1 }, expReward: 12, minLevel: 1, lootTable: [
+    { item: ITEMS_DB['gold_coin'], dropChance: 0.7 }, // Era 0.5
+    { item: ITEMS_DB['potion_heal'], dropChance: 0.15 } // Novo
   ]},
-  { id: 'm02', name: 'Rato Gigante', stats: { hp: 15, str: 3, dex: 3, int: 1 }, expReward: 15, minLevel: 1, lootTable: [
-    { item: ITEMS_DB['gold_coin'], dropChance: 0.3 },
-    { item: ITEMS_DB['potion_heal'], dropChance: 0.1 }
+  { id: 'm02', name: 'Rato Gigante', stats: { hp: 15, str: 3, dex: 3, int: 1 }, expReward: 18, minLevel: 1, lootTable: [
+    { item: ITEMS_DB['gold_coin'], dropChance: 0.6 }, // Era 0.3
+    { item: ITEMS_DB['potion_heal'], dropChance: 0.3 } // Era 0.1 (Agora é essencial)
   ]},
-  { id: 'm_skeleton', name: 'Esqueleto', stats: { hp: 20, str: 4, dex: 2, int: 1 }, expReward: 20, minLevel: 2, lootTable: [
-    { item: ITEMS_DB['gold_coin'], dropChance: 0.5 },
-    { item: ITEMS_DB['sword_rusty'], dropChance: 0.05 },
-  ]},
-  
-  // Nível 3-4
-  { id: 'm03', name: 'Goblin', stats: { hp: 25, str: 5, dex: 4, int: 2 }, expReward: 25, minLevel: 3, lootTable: [
-    { item: ITEMS_DB['gold_coin'], dropChance: 0.8 },
-    { item: ITEMS_DB['dagger_iron'], dropChance: 0.02 },
-    { item: ITEMS_DB['potion_str'], dropChance: 0.02 },
-  ]},
-  { id: 'm_zombie', name: 'Zumbi', stats: { hp: 35, str: 6, dex: 1, int: 1 }, expReward: 30, minLevel: 4, lootTable: [
-    { item: ITEMS_DB['gold_coin'], dropChance: 0.8 },
-    { item: ITEMS_DB['armor_leather'], dropChance: 0.05 },
-    { item: ITEMS_DB['potion_def'], dropChance: 0.02 }
+  { id: 'm_skeleton', name: 'Esqueleto', stats: { hp: 20, str: 4, dex: 2, int: 1 }, expReward: 25, minLevel: 2, lootTable: [
+    { item: ITEMS_DB['gold_coin'], dropChance: 0.8 }, // Era 0.5
+    { item: ITEMS_DB['potion_heal'], dropChance: 0.25 },
+    { item: ITEMS_DB['sword_rusty'], dropChance: 0.1 },
   ]},
   
-  // Nível 5-7
-  { id: 'm04', name: 'Orc', stats: { hp: 50, str: 8, dex: 3, int: 2 }, expReward: 50, minLevel: 5, lootTable: [
-    { item: ITEMS_DB['gold_coin'], dropChance: 1.0 },
-    { item: ITEMS_DB['armor_iron'], dropChance: 0.05 },
-    { item: ITEMS_DB['sword_iron'], dropChance: 0.05 },
-    { item: ITEMS_DB['potion_heal_large'], dropChance: 0.01 }
+  // Nível 3-4 (Caverna)
+  { id: 'm03', name: 'Goblin', stats: { hp: 25, str: 5, dex: 4, int: 2 }, expReward: 32, minLevel: 3, lootTable: [
+    { item: ITEMS_DB['gold_coin'], dropChance: 0.9 }, // Era 0.8
+    { item: ITEMS_DB['potion_heal'], dropChance: 0.3 }, // Adicionado para sustain
+    { item: ITEMS_DB['dagger_iron'], dropChance: 0.05 },
+    { item: ITEMS_DB['potion_str'], dropChance: 0.1 }, // Era 0.02
   ]},
-  { id: 'm_troll', name: 'Troll', stats: { hp: 80, str: 10, dex: 2, int: 1 }, expReward: 75, minLevel: 6, lootTable: [
-    { item: ITEMS_DB['gold_coin'], dropChance: 1.0 },
-    { item: ITEMS_DB['battleaxe_iron'], dropChance: 0.05 },
-    { item: ITEMS_DB['gem_ruby'], dropChance: 0.01 }
-  ]},
-  { id: 'm_necromancer', name: 'Necromante', stats: { hp: 60, str: 4, dex: 5, int: 10 }, expReward: 80, minLevel: 7, lootTable: [
-    { item: ITEMS_DB['gold_coin'], dropChance: 1.0 },
-    { item: ITEMS_DB['staff_magic'], dropChance: 0.05 },
-    { item: ITEMS_DB['robe_mage'], dropChance: 0.05 },
+  { id: 'm_zombie', name: 'Zumbi', stats: { hp: 35, str: 6, dex: 1, int: 1 }, expReward: 40, minLevel: 4, lootTable: [
+    { item: ITEMS_DB['gold_coin'], dropChance: 0.9 },
+    { item: ITEMS_DB['potion_heal'], dropChance: 0.3 },
+    { item: ITEMS_DB['armor_leather'], dropChance: 0.1 },
+    { item: ITEMS_DB['potion_def'], dropChance: 0.1 }
   ]},
   
-  // Nível 8-9
-  { id: 'm05', name: 'Lower Demon', stats: { hp: 100, str: 12, dex: 8, int: 8 }, expReward: 120, minLevel: 8, lootTable: [
-    { item: ITEMS_DB['gold_coin'], dropChance: 1.0 },
-    { item: ITEMS_DB['potion_heal_large'], dropChance: 0.1 },
-    { item: ITEMS_DB['sword_steel'], dropChance: 0.05 },
-    { item: ITEMS_DB['gem_sapphire'], dropChance: 0.02 }
+  // Nível 5-7 (Masmorra)
+  { id: 'm04', name: 'Orc', stats: { hp: 50, str: 8, dex: 3, int: 2 }, expReward: 65, minLevel: 5, lootTable: [
+    { item: ITEMS_DB['gold_coin'], dropChance: 1.0 }, // Sempre dropa ouro
+    { item: ITEMS_DB['potion_heal'], dropChance: 0.4 }, // Alta chance de cura
+    { item: ITEMS_DB['armor_iron'], dropChance: 0.08 },
+    { item: ITEMS_DB['sword_iron'], dropChance: 0.08 },
+    { item: ITEMS_DB['potion_heal_large'], dropChance: 0.1 } // Era 0.01
   ]},
-  { id: 'm_golem', name: 'Golem de Aço', stats: { hp: 150, str: 15, dex: 1, int: 1 }, expReward: 150, minLevel: 9, lootTable: [
+  { id: 'm_troll', name: 'Troll', stats: { hp: 80, str: 10, dex: 2, int: 1 }, expReward: 95, minLevel: 6, lootTable: [
     { item: ITEMS_DB['gold_coin'], dropChance: 1.0 },
-    { item: ITEMS_DB['armor_steel'], dropChance: 0.05 },
-    { item: ITEMS_DB['tunic_shadow'], dropChance: 0.05 },
+    { item: ITEMS_DB['potion_heal_large'], dropChance: 0.2 },
+    { item: ITEMS_DB['battleaxe_iron'], dropChance: 0.1 },
+    { item: ITEMS_DB['gem_ruby'], dropChance: 0.1 } // Era 0.01
+  ]},
+  { id: 'm_necromancer', name: 'Necromante', stats: { hp: 60, str: 4, dex: 5, int: 10 }, expReward: 110, minLevel: 7, lootTable: [
+    { item: ITEMS_DB['gold_coin'], dropChance: 1.0 },
+    { item: ITEMS_DB['potion_int'], dropChance: 0.3 }, // Novo drop
+    { item: ITEMS_DB['staff_magic'], dropChance: 0.1 },
+    { item: ITEMS_DB['robe_mage'], dropChance: 0.1 },
+  ]},
+  
+  // Nível 8-9 (Abismo)
+  { id: 'm05', name: 'Lower Demon', stats: { hp: 100, str: 12, dex: 8, int: 8 }, expReward: 160, minLevel: 8, lootTable: [
+    { item: ITEMS_DB['gold_coin'], dropChance: 1.0 },
+    { item: ITEMS_DB['potion_heal_large'], dropChance: 0.4 }, // Essencial nesse nível
+    { item: ITEMS_DB['sword_steel'], dropChance: 0.1 },
+    { item: ITEMS_DB['gem_sapphire'], dropChance: 0.15 }
+  ]},
+  { id: 'm_golem', name: 'Golem de Aço', stats: { hp: 150, str: 15, dex: 1, int: 1 }, expReward: 200, minLevel: 9, lootTable: [
+    { item: ITEMS_DB['gold_coin'], dropChance: 1.0 },
+    { item: ITEMS_DB['potion_def'], dropChance: 0.4 },
+    { item: ITEMS_DB['armor_steel'], dropChance: 0.1 },
+    { item: ITEMS_DB['tunic_shadow'], dropChance: 0.1 },
   ]},
   
   // Bosses (10+)
-  { id: 'm06', name: 'Rei Vazio', stats: { hp: 200, str: 20, dex: 15, int: 15 }, expReward: 500, minLevel: 10, lootTable: [
+  { id: 'm06', name: 'Rei Vazio', stats: { hp: 200, str: 20, dex: 15, int: 15 }, expReward: 800, minLevel: 10, lootTable: [
     { item: ITEMS_DB['gold_coin'], dropChance: 1.0 },
-    { item: ITEMS_DB['sword_void'], dropChance: 0.1 },
-    { item: ITEMS_DB['robe_void'], dropChance: 0.1 },
-    { item: ITEMS_DB['gold_bar'], dropChance: 0.05 }
+    { item: ITEMS_DB['elixir_heal_max'], dropChance: 1.0 }, // Garante cura total
+    { item: ITEMS_DB['sword_void'], dropChance: 0.2 },
+    { item: ITEMS_DB['robe_void'], dropChance: 0.2 },
+    { item: ITEMS_DB['gold_bar'], dropChance: 0.5 } // Rico!
   ]},
-  { id: 'm_dragon', name: 'Dragão Ancião', stats: { hp: 300, str: 25, dex: 10, int: 10 }, expReward: 1000, minLevel: 12, lootTable: [
+  { id: 'm_dragon', name: 'Dragão Ancião', stats: { hp: 300, str: 25, dex: 10, int: 10 }, expReward: 1500, minLevel: 12, lootTable: [
     { item: ITEMS_DB['gold_coin'], dropChance: 1.0 },
-    { item: ITEMS_DB['armor_dragonscale'], dropChance: 0.1 },
-    { item: ITEMS_DB['daggers_soul'], dropChance: 0.1 },
-    { item: ITEMS_DB['gold_bar'], dropChance: 0.1 }
+    { item: ITEMS_DB['elixir_heal_max'], dropChance: 1.0 },
+    { item: ITEMS_DB['armor_dragonscale'], dropChance: 0.2 },
+    { item: ITEMS_DB['daggers_soul'], dropChance: 0.2 },
+    { item: ITEMS_DB['gold_bar'], dropChance: 1.0 } // Sempre dropa barra de ouro
   ]},
 ];
 

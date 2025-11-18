@@ -261,3 +261,15 @@ export interface GitHubRepo {
   stargazers_count: number;
   pushed_at: string;
 }
+
+export interface GitHubCommit {
+  sha: string;
+  html_url: string;
+  commit: {
+    message: string;
+    author: {
+      name: string;
+      date: string;
+    };
+  };
+}
