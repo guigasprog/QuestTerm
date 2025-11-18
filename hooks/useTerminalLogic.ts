@@ -757,54 +757,48 @@ export function useTerminalLogic() {
       
       return log;
     }
-    
-    const targetsCount = 1 + gameState.activeSummons.length;
-    const targetIndex = Math.floor(Math.random() * targetsCount);
-
-    const monsterStats = currentMonster.stats;
-    // Dano base do monstro
-    let monsterDamage = Math.max(1, monsterStats.str);
-
-    if (targetIndex === 0) {
-       monsterDamage = Math.max(1, Math.floor(monsterStats.str - (playerStats.dex / 2)));
-
-       log.push(`> O ${currentMonster.name} ataca VOCÊ causando ${monsterDamage} de dano.`);
-       
-       character.currentHP -= monsterDamage;
-
-    } else {
-      const summonIndex = targetIndex - 1;
-      const targetSummon = gameState.activeSummons[summonIndex];
-      log.push(`> O ${currentMonster.name} ataca ${targetSummon.name} causando ${monsterDamage} de dano.`);
-      
-      dispatch({ type: 'MONSTER_ATTACK_SUMMON', payload: { index: summonIndex, damage: monsterDamage } });
-      
-      if (targetSummon.stats.hp - monsterDamage <= 0) {
-        log.push(`  ${targetSummon.name} foi destruído!`);
-      }
-    }
 
     const isParalyzed = currentMonster.statusEffects.find(e => e.id === 'paralyzed');
 
     if (isParalyzed) {
       log.push(`> O ${currentMonster.name} está paralisado e não pode se mover!`);
     } else {
-      const isInvisible = character.statusEffects.find(e => e.id === 'invisible');
       
-      if (isInvisible) {
-        log.push(`> O ${currentMonster.name} ataca, mas você está invisível e ele erra!`);
-      } else {
-        const monsterStats = currentMonster.stats;
-        let monsterDamage = Math.max(1, Math.floor(monsterStats.str - (playerStats.dex / 2)));
+      const targetsCount = 1 + gameState.activeSummons.length;
+      const targetIndex = Math.floor(Math.random() * targetsCount);
+      const monsterStats = currentMonster.stats;
+      
+      if (targetIndex === 0) {
+        const isInvisible = character.statusEffects.find(e => e.id === 'invisible');
         
-        const reduceDmg = character.statusEffects.find(e => e.id === 'damage_reduction');
-        if (reduceDmg && reduceDmg.potency) {
-          monsterDamage = Math.max(0, monsterDamage - reduceDmg.potency);
-          log.push(`  Sua 'Casca Grossa' reduz o dano!`);
+        if (isInvisible) {
+          log.push(`> O ${currentMonster.name} ataca, mas você está invisível e ele erra!`);
+        } else {
+          let monsterDamage = Math.max(1, Math.floor(monsterStats.str - (playerStats.dex / 2)));
+          
+          const reduceDmg = character.statusEffects.find(e => e.id === 'damage_reduction');
+          if (reduceDmg && reduceDmg.potency) {
+            monsterDamage = Math.max(0, monsterDamage - reduceDmg.potency);
+            log.push(`  Sua 'Casca Grossa' reduz o dano!`);
+          }
+          
+          character.currentHP -= monsterDamage;
+          log.push(`> O ${currentMonster.name} ataca VOCÊ causando ${monsterDamage} de dano.`);
         }
+
+      } else {
+        const summonIndex = targetIndex - 1;
+        const targetSummon = gameState.activeSummons[summonIndex];
         
-        character.currentHP -= monsterDamage;
-        log.push(`> O ${currentMonster.name} ataca você causando ${monsterDamage} de dano.`);
+        const damageToSummon = Math.max(1, monsterStats.str);
+
+        log.push(`> O ${currentMonster.name} ataca ${targetSummon.name} causando ${damageToSummon} de dano.`);
+        
+        dispatch({ type: 'MONSTER_ATTACK_SUMMON', payload: { index: summonIndex, damage: damageToSummon } });
+        
+        if (targetSummon.stats.hp - damageToSummon <= 0) {
+          log.push(`  ${targetSummon.name} foi destruído!`);
+        }
       }
     }
 
