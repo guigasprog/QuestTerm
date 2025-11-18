@@ -20,6 +20,7 @@ import {
   ITEMS_DB,
   MONSTERS_DB, 
   SUMMONS_DB, 
+  SKILLS_DB,
   availableClasses
 } from '@/lib/game-data';
 
@@ -42,7 +43,8 @@ type GameAction =
   | { type: 'START_CREATION' }
   | { type: 'SET_NAME'; payload: string }
   | { type: 'SET_CLASS'; payload: string }
-  | { type: 'TRAIN'; payload: TrainableStat }
+  | { type: 'TRAIN'; payload: { stat: TrainableStat; gain: number; xp: number } }
+  | { type: 'DISTRIBUTE_POINT'; payload: { stat: TrainableStat; amount: number } }
   | { type: 'FIND_BATTLE'; payload: CombatMonster }
   | { type: 'PLAYER_ATTACK'; payload: { playerDamage: number; monsterDamage: number } }
   | { type: 'END_COMBAT'; payload: { exp: number; loot: Item[], log: string[], gold: number, monsterName: string } }
@@ -76,7 +78,6 @@ const initialGameState: GameState = {
   activeSummons: []
 };
 
-
 const cloneCharacter = (char: Character): Character => {
   const newChar = new Character(char.name, char.charClass);
   Object.assign(newChar, char);
@@ -85,14 +86,17 @@ const cloneCharacter = (char: Character): Character => {
   return newChar;
 };
 
+const getNewSkills = (className: string, level: number): Skill[] => {
+  return SKILLS_DB.filter(s => 
+    s.unlockLevel === level && s.classRequirement === className
+  );
+};
+
 const createHealthBar = (current: number, max: number, length: number = 20): string => {
   const percentage = max > 0 ? (current / max) : 0;
   const filledBars = Math.round(percentage * length);
   const emptyBars = length - filledBars;
-  
-  // Assegura que 'current' não seja negativo para o display
   const displayCurrent = Math.max(0, current);
-  
   const bar = `[${'■'.repeat(filledBars)}${'-'.repeat(emptyBars)}]`;
   return `${bar} ${(percentage * 100).toFixed(0)}% (${displayCurrent}/${max})`;
 };
@@ -107,38 +111,21 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       case 'SET_CLASS':
         const chosenClass = availableClasses.find(c => c.name.toLowerCase() === action.payload);
         if (!chosenClass) return state;
+        
+        const newChar = new Character(state.tempName, chosenClass);
+        const initialSkills = getNewSkills(chosenClass.name, 1);
+        newChar.knownSkills.push(...initialSkills);
+
         return {
           ...state,
           gameState: 'IDLE',
           tempName: '',
-          character: new Character(state.tempName, chosenClass),
+          character: newChar,
         };
       case 'LOAD_CHARACTER':
         return { ...state, character: action.payload };
       case 'RESTORE_GAME_STATE':
         return { ...state, ...action.payload };
-      case 'SELL_ITEM': {
-      if (!state.character) return state;
-      const newCharSell = cloneCharacter(state.character);
-      const { itemId, price, qty } = action.payload;
-      
-      let itemsRemoved = 0;
-
-      for (let i = 0; i < qty; i++) {
-        const index = newCharSell.inventory.findIndex(item => item.id === itemId);
-        
-        if (index > -1) {
-          newCharSell.inventory.splice(index, 1);
-          itemsRemoved++;
-        } else {
-          break; 
-        }
-      }
-
-      newCharSell.gold += (price * itemsRemoved);
-      
-      return { ...state, character: newCharSell };
-    }
       default:
         return state;
     }
@@ -148,7 +135,31 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     case 'TRAIN': {
       if (!state.character) return state;
       const newChar = cloneCharacter(state.character);
-      newChar.baseStats[action.payload]++;
+      
+      newChar.baseStats[action.payload.stat] += action.payload.gain;
+      
+      const leveledUp = newChar.addExp(action.payload.xp);
+      
+      if (leveledUp) {
+         newChar.attributePoints += 3;
+         const learnedSkills = getNewSkills(newChar.charClass.name, newChar.level);
+         if (learnedSkills.length > 0) {
+            newChar.knownSkills.push(...learnedSkills);
+         }
+      }
+
+      return { ...state, character: newChar };
+    }
+
+    case 'DISTRIBUTE_POINT': {
+      if (!state.character) return state;
+      const newChar = cloneCharacter(state.character);
+      const { stat, amount } = action.payload;
+
+      if (newChar.attributePoints >= amount) {
+        newChar.baseStats[stat] += amount;
+        newChar.attributePoints -= amount;
+      }
       return { ...state, character: newChar };
     }
 
@@ -167,7 +178,6 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       if (!state.currentMonster || !state.character) return state;
       const { playerDamage, monsterDamage } = action.payload;
       
-      // O monstro também precisa ser clonado
       const newMonster = { ...state.currentMonster }; 
       newMonster.currentHP -= playerDamage;
       
@@ -178,25 +188,29 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'SUMMON_CREATURE':
-      if (state.activeSummons.length >= 3) return state; // Limite de 3
+      if (state.activeSummons.length >= 3) return state;
       return { ...state, activeSummons: [...state.activeSummons, action.payload] };
     
     case 'EVOLVE_CLASS': {
       if (!state.character) return state;
       const newCharEvolved = cloneCharacter(state.character);
-
-      // Pega a nova classe completa do DB
       const newClassDefinition = CLASSES_DB[action.payload]; 
 
       if (newClassDefinition) {
-         newCharEvolved.charClass = newClassDefinition; // <-- ATUALIZA TUDO (LevelUpGains inclusos)
+         newCharEvolved.charClass = newClassDefinition;
+         const evolvedSkills = getNewSkills(newClassDefinition.name, newCharEvolved.level);
+         evolvedSkills.forEach(s => {
+            if (!newCharEvolved.knownSkills.some(k => k.id === s.id)) {
+                newCharEvolved.knownSkills.push(s);
+            }
+         });
       } else {
-         // Fallback de segurança apenas mudando o nome (não deve acontecer)
          newCharEvolved.charClass.name = action.payload; 
       }
 
       return { ...state, character: newCharEvolved };
     }
+    
     case 'SUMMON_ATTACK_MONSTER':
       if (!state.currentMonster) return state;
       const monsterHurt = { ...state.currentMonster };
@@ -209,7 +223,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       targetSummon.stats.hp -= action.payload.damage;
       
       if (targetSummon.stats.hp <= 0) {
-        summons.splice(action.payload.index, 1); // Invocação morreu
+        summons.splice(action.payload.index, 1);
       } else {
         summons[action.payload.index] = targetSummon;
       }
@@ -221,7 +235,6 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       const newChar = cloneCharacter(state.character);
       
       newChar.gold += gold;
-      
       const currentKills = newChar.monsterKills.get(monsterName) || 0;
       newChar.monsterKills.set(monsterName, currentKills + 1);
       
@@ -230,7 +243,15 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       
       if (leveledUp) {
         log.push(`*** VOCÊ SUBIU DE NÍVEL! Agora você é nível ${newChar.level}! ***`);
+        newChar.attributePoints += 3; 
+        const learnedSkills = getNewSkills(newChar.charClass.name, newChar.level);
+        if (learnedSkills.length > 0) {
+            newChar.knownSkills.push(...learnedSkills);
+            log.push(`Você aprendeu novas habilidades: ${learnedSkills.map(s => s.name).join(', ')}`);
+        }
+        log.push(`Você ganhou +3 pontos de atributo! Use 'up [stat] [qtd]' para distribuir.`);
       }
+      
       return { ...state, gameState: 'IDLE', currentMonster: null, combatLog: log, character: newChar, activeSummons: [] };
     }
       
@@ -265,11 +286,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'SET_SHOP_STOCK':
-      return { 
-        ...state, 
-        shopStock: action.payload.stock, 
-        shopLastRefresh: action.payload.timestamp 
-      };
+      return { ...state, shopStock: action.payload.stock, shopLastRefresh: action.payload.timestamp };
 
     case 'BUY_ITEM':
       if (!state.character) return state;
@@ -278,6 +295,25 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       newCharBuy.gold -= cost;
       newCharBuy.inventory.push(item);
       return { ...state, character: newCharBuy };
+
+    case 'SELL_ITEM': {
+      if (!state.character) return state;
+      const newCharSell = cloneCharacter(state.character);
+      const { itemId, price, qty } = action.payload;
+      
+      let itemsRemoved = 0;
+      for (let i = 0; i < qty; i++) {
+        const index = newCharSell.inventory.findIndex(item => item.id === itemId);
+        if (index > -1) {
+          newCharSell.inventory.splice(index, 1);
+          itemsRemoved++;
+        } else {
+          break; 
+        }
+      }
+      newCharSell.gold += (price * itemsRemoved);
+      return { ...state, character: newCharSell };
+    }
 
     case 'ADD_ITEM':
       if (!state.character) return state;
@@ -290,10 +326,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       const newCharHeal = cloneCharacter(state.character);
       const healAmount = action.payload;
       const maxHP = newCharHeal.getCombatStats().hp;
-      newCharHeal.currentHP = Math.min(
-        maxHP,
-        newCharHeal.currentHP + healAmount
-      );
+      newCharHeal.currentHP = Math.min(maxHP, newCharHeal.currentHP + healAmount);
       return { ...state, character: newCharHeal };
     }
 
@@ -310,7 +343,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     case 'APPLY_PLAYER_STATUS': {
       if (!state.character) return state;
       const newCharStatus = cloneCharacter(state.character);
-      newCharStatus.addStatusEffect(action.payload); // Método muta newCharStatus
+      newCharStatus.addStatusEffect(action.payload);
       return { ...state, character: newCharStatus };
     }
 
@@ -323,15 +356,15 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 }
 
 export function useTerminalLogic() {
-
   const [history, setHistory] = useState<string[]>([
     "Bem-vindo ao QuestTerm (v1.0.0)",
     "Portfólio interativo de Guilherme Delgado Martins.",
-    "Digite 'help' para ver a lista de comandos."
+    "Digite 'help' para ver a lista de comandos.",
+    "Digite 'new game' para começar uma nova aventura."
   ]);
   
   const [gameState, dispatch] = useReducer(gameReducer, initialGameState);
-
+  const [isInitialized, setIsInitialized] = useState(false);
   const [projects, setProjects] = useState<GitHubRepo[] | null>(null);
   const [commits, setCommits] = useState<GitHubCommit[] | null>(null);
 
@@ -351,14 +384,10 @@ export function useTerminalLogic() {
         },
         monsterKills: Array.from(character.monsterKills.entries()),
       };
-
       const savedMemorial = localStorage.getItem(MEMORIAL_KEY);
       const entries: MemorialEntry[] = savedMemorial ? JSON.parse(savedMemorial) : [];
-
       entries.push(entry);
-
       localStorage.setItem(MEMORIAL_KEY, JSON.stringify(entries));
-
     } catch (err) {
       console.error("Falha ao salvar no memorial", err);
     }
@@ -366,19 +395,12 @@ export function useTerminalLogic() {
 
   const showMemorial = (): string[] => {
     const savedMemorial = localStorage.getItem(MEMORIAL_KEY);
-    if (!savedMemorial) {
-      return ["O Memorial dos Heróis Caídos está vazio."];
-    }
-    
+    if (!savedMemorial) return ["O Memorial dos Heróis Caídos está vazio."];
     const entries: MemorialEntry[] = JSON.parse(savedMemorial);
-    if (entries.length === 0) {
-      return ["O Memorial dos Heróis Caídos está vazio."];
-    }
+    if (entries.length === 0) return ["O Memorial dos Heróis Caídos está vazio."];
     
     const log: string[] = ["--- Memorial dos Heróis Caídos ---"];
-    
     const lastHero = entries[entries.length - 1];
-
     log.push(`Último Herói: ${lastHero.name}, o ${lastHero.className} (Nível ${lastHero.level})`);
     log.push(`  Registrado em: ${lastHero.date}`);
     log.push(`  Ouro Final: ${lastHero.gold} G`);
@@ -387,69 +409,41 @@ export function useTerminalLogic() {
     
     if (lastHero.monsterKills.length > 0) {
       log.push("  Registro de Eliminações:");
-      lastHero.monsterKills.forEach(([name, count]) => {
-        log.push(`    - ${name}: ${count}`);
-      });
+      lastHero.monsterKills.forEach(([name, count]) => log.push(`    - ${name}: ${count}`));
     } else {
       log.push("  Não eliminou nenhum monstro.");
     }
-    
-    if (entries.length > 1) {
-      log.push(`(E ${entries.length - 1} outros heróis caídos...)`);
-    }
-
+    if (entries.length > 1) log.push(`(E ${entries.length - 1} outros heróis caídos...)`);
     return log;
   };
 
   useEffect(() => {
     const GITHUB_USERNAME = 'guigasprog';
     const API_URL = `https://api.github.com/users/${GITHUB_USERNAME}/repos?sort=pushed&direction=desc&per_page=6`;
-
     const fetchProjects = async () => {
-      try {
-        const response = await fetch(API_URL);
-        if (!response.ok) {
-          throw new Error('Falha ao buscar dados do GitHub');
-        }
-        const data: GitHubRepo[] = await response.json();
-        setProjects(data);
-      } catch (error) {
-        console.error(error);
-        setProjects([]);
-      }
+        try { const res = await fetch(API_URL); if(res.ok) setProjects(await res.json()); else setProjects([]); } 
+        catch { setProjects([]); }
     };
-
     fetchProjects();
   }, []);
 
   useEffect(() => {
     const GITHUB_USERNAME = 'guigasprog';
-    const GITHUB_REPO = 'QuestTerm'; // <--- SUBSTITUA PELO NOME EXATO DO SEU REPOSITÓRIO
+    const GITHUB_REPO = 'QuestTerm'; 
     const API_URL = `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/commits?per_page=10`;
-
     const fetchCommits = async () => {
-      try {
-        const response = await fetch(API_URL);
-        if (!response.ok) throw new Error('Falha ao buscar commits');
-        const data: GitHubCommit[] = await response.json();
-        setCommits(data);
-      } catch (error) {
-        console.error(error);
-        setCommits([]);
-      }
+        try { const res = await fetch(API_URL); if(res.ok) setCommits(await res.json()); else setCommits([]); }
+        catch { setCommits([]); }
     };
-
     fetchCommits();
   }, []);
 
   const showPatchNotes = (): string[] => {
     if (commits === null) return ["Carregando Patch Notes..."];
     if (commits.length === 0) return ["Não foi possível carregar os commits recentes."];
-
     return [
-      "--- Patch Notes (Últimos Commits) ---",
+      "--- Patch Notes ---",
       ...commits.map((c) => {
-        // Pega apenas a primeira linha da mensagem (Título)
         const title = c.commit.message.split('\n')[0];
         const date = new Date(c.commit.author.date).toLocaleDateString('pt-BR');
         return `  [${date}] ${title}`;
@@ -463,9 +457,9 @@ export function useTerminalLogic() {
       const savedString = localStorage.getItem(LOCALSTORAGE_KEY);
       if (savedString) {
         const savedData = JSON.parse(savedString);
-        
         const charData = savedData.character;
-        const charClass = availableClasses.find(c => c.name === charData.charClass.name);
+        const charClass = availableClasses.find(c => c.name === charData.charClass.name) 
+                          || CLASSES_DB[charData.charClass.name];
 
         if (charClass) {
           const newChar = new Character(charData.name, charClass);
@@ -477,38 +471,39 @@ export function useTerminalLogic() {
             newChar.stamina = 3;
             newChar.lastStaminaRefresh = Date.now();
           }
+          if (newChar.attributePoints === undefined) {
+            newChar.attributePoints = 0;
+          }
 
           dispatch({ type: 'LOAD_CHARACTER', payload: newChar });
-          
           dispatch({ 
             type: 'RESTORE_GAME_STATE', 
             payload: {
               gameState: savedData.gameState || 'IDLE',
               currentMonster: savedData.currentMonster || null,
               shopStock: savedData.shopStock || [],
-              shopLastRefresh: savedData.shopLastRefresh || 0
+              shopLastRefresh: savedData.shopLastRefresh || 0,
+              activeSummons: savedData.activeSummons || []
             }
           });
-          
           setHistory(prev => [...prev, `Jogo salvo de '${newChar.name}' (Nível ${newChar.level}) carregado.`]);
           if (savedData.gameState === 'IN_COMBAT') {
-             setHistory(prev => [...prev, `Você ainda está em combate com ${savedData.currentMonster.name}!`]);
+             setHistory(prev => [...prev, `ATENÇÃO: Você está em combate com ${savedData.currentMonster.name}!`]);
           }
         }
-      } else {
-        setHistory(prev => [...prev, "Digite 'new game' para começar uma nova aventura."]);
       }
     } catch (err) {
       console.error("Falha ao carregar save", err);
       localStorage.removeItem(LOCALSTORAGE_KEY);
-      setHistory(prev => [...prev, "Save corrompido. Comece um novo jogo."]);
+    } finally {
+      setIsInitialized(true);
     }
-  }, []);
+  }, []); 
 
   useEffect(() => {
+    if (!isInitialized) return;
     try {
       const { character } = gameState;
-      
       if (character) {
         const dataToSave = { 
           ...gameState,
@@ -525,23 +520,14 @@ export function useTerminalLogic() {
     } catch (err) {
       console.error("Falha ao salvar jogo", err);
     }
-  }, [gameState]);
+  }, [gameState, isInitialized]);
 
-  const findInList = <T extends { name: string, id: string }>(
-    query: string, 
-    list: T[] 
-  ): T | undefined => {
-    
-    const uniqueList = [
-      ...new Map(list.map(item => [item.id, item])).values()
-    ];
-
+  const findInList = <T extends { name: string, id: string }>(query: string, list: T[]): T | undefined => {
+    const uniqueList = [...new Map(list.map(item => [item.id, item])).values()];
     const index = parseInt(query, 10) - 1; 
     if (!isNaN(index) && index >= 0 && index < uniqueList.length) {
-      
       return list.find(i => i.id === uniqueList[index].id);
     }
-    
     const lowerQuery = query.toLowerCase();
     return list.find(item => item.name.toLowerCase().includes(lowerQuery));
   };
@@ -550,16 +536,11 @@ export function useTerminalLogic() {
     if (!gameState.character) return ["Erro."];
     const { knownSkills, skillCooldowns } = gameState.character;
     if (knownSkills.length === 0) return ["Você não conhece nenhuma habilidade."];
-
     const log = ['--- Habilidades (Combate) ---'];
     knownSkills.forEach((skill, index) => {
       const cooldown = skillCooldowns.get(skill.id);
       const prefix = `  ${index + 1}. ${skill.name} (${skill.type})`;
-      if (cooldown) {
-        log.push(`${prefix} - [RECARGA: ${cooldown}t]`);
-      } else {
-        log.push(`${prefix} - [PRONTO]`);
-      }
+      log.push(cooldown ? `${prefix} - [RECARGA: ${cooldown}t]` : `${prefix} - [PRONTO]`);
     });
     return log;
   };
@@ -568,11 +549,7 @@ export function useTerminalLogic() {
     if (!gameState.character) return ["Erro."];
     const potions = gameState.character.inventory.filter(i => i.type === 'Potion');
     if (potions.length === 0) return ["Você não tem poções utilizáveis."];
-    
-    const uniquePotions = [
-      ...new Map(potions.map(item => [item.id, item])).values()
-    ];
-
+    const uniquePotions = [...new Map(potions.map(item => [item.id, item])).values()];
     const log = ['--- Poções (Combate) ---'];
     uniquePotions.forEach((item, index) => {
        const count = potions.filter(i => i.id === item.id).length;
@@ -594,33 +571,25 @@ export function useTerminalLogic() {
       playerDamage = Math.max(1, Math.floor(playerStats.str - (monsterStats.dex / 2)));
       currentMonster.currentHP -= playerDamage;
       log.push(`> Você ataca o ${currentMonster.name} causando ${playerDamage} de dano.`);
-      
     } else if (action === 'run') {
       log.push("> Você tenta fugir...");
       const playerLevel = character.level;
       const monsterLevel = currentMonster.minLevel;
       const levelDifference = monsterLevel - playerLevel;
-
       const baseChance = 0.8;
       const penaltyPerLevel = 0.1;
       const dexBonus = playerStats.dex * 0.015;
+      const escapeChance = Math.max(0.1, Math.min(0.95, baseChance - (levelDifference * penaltyPerLevel) + dexBonus));
       
-      let escapeChance = baseChance - (levelDifference * penaltyPerLevel) + dexBonus;
-      escapeChance = Math.max(0.1, Math.min(0.95, escapeChance));
-      
-      const roll = Math.random();
-          
-      if (roll <= escapeChance) {
+      if (Math.random() <= escapeChance) {
         dispatch({ type: 'RUN_AWAY' });
         log.push("  ...e consegue escapar!");
         return log;
       } else {
         log.push("  ...mas o monstro bloqueia seu caminho!");
       }
-
     } else if ('item' in action) {
       log.push(`> Você usa '${action.item.name}'!`);
-      
       if (action.item.type === 'Potion') {
         const potion = action.item as Potion;
         if (potion.effect === 'heal') {
@@ -629,7 +598,6 @@ export function useTerminalLogic() {
         }
       }
       dispatch({ type: 'REMOVE_ITEM_BY_ID', payload: action.item.id });
-
     } else {
       const skill = action.skill;
       log.push(`> Você usa '${skill.name}'!`);
@@ -639,9 +607,8 @@ export function useTerminalLogic() {
       skill.effects.forEach(effect => {
         switch (effect.type) {
           case 'summon': {
-            if (gameState.activeSummons.length >= 3) {
-              log.push("Você já tem 3 invocações ativas!");
-            } else {
+            if (gameState.activeSummons.length >= 3) log.push("Você já tem 3 invocações ativas!");
+            else {
               const summonTemplate = SUMMONS_DB[effect.summonId];
               const newSummon = { ...summonTemplate, id: `${summonTemplate.id}_${Date.now()}` };
               dispatch({ type: 'SUMMON_CREATURE', payload: newSummon });
@@ -651,20 +618,10 @@ export function useTerminalLogic() {
           }
           case 'apply_status': {
             const intPotencyBonus = Math.floor(playerStats.int / 4);
-            const dexDurationBonus = (Math.random() < (playerStats.dex / 25) ? 1 : 0);
-            
             const finalPotency = (effect.potency || 0) + intPotencyBonus;
-            const finalDuration = effect.duration + dexDurationBonus;
-
-            const newEffect: StatusEffect = { 
-              id: effect.effectId, 
-              duration: finalDuration, 
-              potency: finalPotency > 0 ? finalPotency : undefined
-            };
-
-            if ('charClass' in target) {
-              target.addStatusEffect(newEffect);
-            } else {
+            const newEffect: StatusEffect = { id: effect.effectId, duration: effect.duration, potency: finalPotency > 0 ? finalPotency : undefined };
+            if ('charClass' in target) target.addStatusEffect(newEffect);
+            else {
               target.statusEffects = target.statusEffects.filter(e => e.id !== newEffect.id);
               target.statusEffects.push(newEffect);
             }
@@ -674,10 +631,8 @@ export function useTerminalLogic() {
           case 'direct_damage': {
             const intDamageBonus = Math.floor(playerStats.int / 10);
             const totalSkillDamage = effect.value + intDamageBonus;
-            
             playerDamage += totalSkillDamage; 
             currentMonster.currentHP -= totalSkillDamage;
-            
             log.push(`  Causando ${totalSkillDamage} de dano! (${effect.value} base + ${intDamageBonus} INT)`);
             break;
           }
@@ -708,95 +663,59 @@ export function useTerminalLogic() {
 
     if (currentMonster.currentHP <= 0) {
       log.push(`> O ${currentMonster.name} foi derrotado!`);
-      
       const loot: Item[] = []; 
       let goldFound = 0;
-
       currentMonster.lootTable.forEach(drop => {
         if (Math.random() < drop.dropChance) {
           const baseItem = drop.item;
           switch (baseItem.type) {
-            case 'Currency': {
-              const baseAmount = currentMonster.minLevel * 2;
-              const randomFactor = (Math.random() - 0.5);
-              const amount = Math.max(1, Math.floor(baseAmount + baseAmount * randomFactor));
-              goldFound += amount;
-              log.push(`  + Você encontrou ${amount}x ${baseItem.name}!`);
-              break;
-            }
-            case 'Potion': {
-              const amount = Math.random() < 0.8 ? 1 : 2;
-              for (let i = 0; i < amount; i++) {
-                loot.push(baseItem);
-              }
-              log.push(`  + Você encontrou ${amount}x ${baseItem.name}!`);
-              break;
-            }
-            case 'Equipment': {
-              loot.push(baseItem);
-              log.push(`  + Você encontrou ${baseItem.name}!`);
-              break;
-            }
+            case 'Currency': 
+               goldFound += Math.max(1, Math.floor(currentMonster.minLevel * 2 * (1 + Math.random()))); 
+               log.push(`  + Você encontrou Ouro!`);
+               break;
+            case 'Potion': 
+               loot.push(baseItem); 
+               log.push(`  + Você encontrou ${baseItem.name}!`); 
+               break;
+            default: 
+               loot.push(baseItem); 
+               log.push(`  + Você encontrou ${baseItem.name}!`);
+               break;
           }
         }
       });
-
-      const exp = currentMonster.expReward;
-      
-      dispatch({ type: 'END_COMBAT', payload: { 
-        exp, 
-        loot, 
-        log, 
-        gold: goldFound, 
-        monsterName: currentMonster.name // <-- PASSE O NOME
-      }});
-      
-      log.push(`Você ganhou ${exp} EXP.`);
-      if (loot.length === 0 && goldFound === 0) {
-        log.push("O monstro não derrubou nada.");
-      }
-      
+      dispatch({ type: 'END_COMBAT', payload: { exp: currentMonster.expReward, loot, log, gold: goldFound, monsterName: currentMonster.name }});
       return log;
     }
 
     const isParalyzed = currentMonster.statusEffects.find(e => e.id === 'paralyzed');
-
     if (isParalyzed) {
       log.push(`> O ${currentMonster.name} está paralisado e não pode se mover!`);
     } else {
-      
       const targetsCount = 1 + gameState.activeSummons.length;
       const targetIndex = Math.floor(Math.random() * targetsCount);
       const monsterStats = currentMonster.stats;
-      
+
       if (targetIndex === 0) {
         const isInvisible = character.statusEffects.find(e => e.id === 'invisible');
-        
         if (isInvisible) {
           log.push(`> O ${currentMonster.name} ataca, mas você está invisível e ele erra!`);
         } else {
           let monsterDamage = Math.max(1, Math.floor(monsterStats.str - (playerStats.dex / 2)));
-          
           const reduceDmg = character.statusEffects.find(e => e.id === 'damage_reduction');
           if (reduceDmg && reduceDmg.potency) {
-            monsterDamage = Math.max(0, monsterDamage - reduceDmg.potency);
-            log.push(`  Sua 'Casca Grossa' reduz o dano!`);
+             monsterDamage = Math.max(0, monsterDamage - reduceDmg.potency);
+             log.push(`  Sua 'Casca Grossa' reduz o dano!`);
           }
-          
           character.currentHP -= monsterDamage;
           log.push(`> O ${currentMonster.name} ataca VOCÊ causando ${monsterDamage} de dano.`);
         }
-
       } else {
         const summonIndex = targetIndex - 1;
         const targetSummon = gameState.activeSummons[summonIndex];
-        
         const damageToSummon = Math.max(1, monsterStats.str);
-
         log.push(`> O ${currentMonster.name} ataca ${targetSummon.name} causando ${damageToSummon} de dano.`);
-        
         dispatch({ type: 'MONSTER_ATTACK_SUMMON', payload: { index: summonIndex, damage: damageToSummon } });
-        
         if (targetSummon.stats.hp - damageToSummon <= 0) {
           log.push(`  ${targetSummon.name} foi destruído!`);
         }
@@ -810,12 +729,11 @@ export function useTerminalLogic() {
     });
 
     if (character.currentHP <= 0) {
-      log.push(`> *** VOCÊ MORREU ***`);
-      saveToMemorial(character);
-      dispatch({ type: 'GAME_OVER' });
-      return log;
+       log.push(`> *** VOCÊ MORREU ***`);
+       saveToMemorial(character);
+       dispatch({ type: 'GAME_OVER' });
+       return log;
     }
-
     return log;
   };
 
@@ -829,57 +747,466 @@ export function useTerminalLogic() {
 
   const checkAndRefreshShop = (): Item[] => {
     const now = Date.now();
-    const oneHour = 1000 * 60 * 60; 
-
-    const storedShopString = localStorage.getItem(SHOP_KEY);
+    const oneHour = 1000 * 60 * 60;
+    const storedShop = localStorage.getItem(SHOP_KEY);
     
-    if (storedShopString) {
-        const { stock, timestamp } = JSON.parse(storedShopString);
-        const timeElapsed = now - timestamp;
-        
-        if (timeElapsed < oneHour) {
+    if (storedShop) {
+        const { stock, timestamp } = JSON.parse(storedShop);
+        if ((now - timestamp) < oneHour) {
             if (gameState.shopStock.length === 0 || gameState.shopLastRefresh !== timestamp) {
-                 dispatch({ 
-                    type: 'SET_SHOP_STOCK', 
-                    payload: { stock, timestamp } 
-                });
+                 dispatch({ type: 'SET_SHOP_STOCK', payload: { stock, timestamp } });
             }
             return stock;
         }
     }
-
     const newStock = generateShopStock();
-    
-    const shopData = { stock: newStock, timestamp: now };
-    localStorage.setItem(SHOP_KEY, JSON.stringify(shopData));
-    
-    dispatch({ 
-        type: 'SET_SHOP_STOCK', 
-        payload: { stock: newStock, timestamp: now } 
-    });
-    
+    localStorage.setItem(SHOP_KEY, JSON.stringify({ stock: newStock, timestamp: now }));
+    dispatch({ type: 'SET_SHOP_STOCK', payload: { stock: newStock, timestamp: now } });
     return newStock;
   };
 
   const handleFindBattle = (): string[] => {
     if (!gameState.character) return ["Crie um personagem primeiro."];
-    
     const charLevel = gameState.character.level;
     const availableSpawns = MONSTERS_DB.filter(m => m.minLevel <= charLevel);
     const weightedSpawns = availableSpawns.flatMap(m => Array(m.minLevel).fill(m));
     if (weightedSpawns.length === 0) return ["Nenhum monstro encontrado..."];
     const monsterTemplate = weightedSpawns[Math.floor(Math.random() * weightedSpawns.length)];
-
-    const combatMonster: CombatMonster = {
-      ...monsterTemplate,
-      currentHP: monsterTemplate.stats.hp,
-      statusEffects: []
-    };
-    
+    const combatMonster: CombatMonster = { ...monsterTemplate, currentHP: monsterTemplate.stats.hp, statusEffects: [] };
     dispatch({ type: 'FIND_BATTLE', payload: combatMonster });
+    return [`!!! Um ${combatMonster.name} selvagem (Nível ${combatMonster.minLevel}) aparece !!!`, "Digite 'attack', 'use', 'cast' ou 'run'."];
+  };
+
+  const handleEquip = (args: string[]): string[] => {
+    if (!gameState.character) return ["Crie um personagem primeiro."];
+    const itemName = args.join(' ');
+    if (!itemName) return ["Uso: equip [nome do item]"];
+    const item = findInList(itemName, gameState.character.inventory);
+    if (!item) return [`Item '${itemName}' não encontrado no inventário.`];
+    if (item.type !== 'Equipment') return [`'${item.name}' não é um item equipável.`];
+    dispatch({ type: 'EQUIP_ITEM', payload: item as Equipment });
+    return [`Você equipou ${item.name}.`];
+  };
+
+  const showStats = (): string[] => {
+    if (!gameState.character) return ["Sem personagem."];
+    const char = gameState.character;
+    const base = char.baseStats;
+    const combat = char.getCombatStats();
+    const healthBar = createHealthBar(char.currentHP, combat.hp);
+    
+    const statsLines = [
+      `--- STATUS: ${char.name} (O ${char.charClass.name}) ---`,
+      `  Nível: ${char.level} (${char.exp} / ${char.expToNextLevel} EXP)`,
+      `  Pontos de Atributo: ${char.attributePoints}`,
+      `  Ouro:  ${char.gold} G`,
+      `  HP:    ${healthBar}`,
+      `  STR:   ${combat.str} ${combat.str > base.str ? `(${base.str}+${combat.str - base.str})` : ''}`,
+      `  DEX:   ${combat.dex} ${combat.dex > base.dex ? `(${base.dex}+${combat.dex - base.dex})` : ''}`,
+      `  INT:   ${combat.int} ${combat.int > base.int ? `(${base.int}+${combat.int - base.int})` : ''}`,
+      `--- Equipamento ---`,
+      `  Arma:  ${char.equipment.weapon?.name || 'Nenhuma'}`,
+      `  Armadura: ${char.equipment.armor?.name || 'Nenhuma'}`,
+    ];
+    if (gameState.character.statusEffects.length > 0) {
+      statsLines.push('--- Efeitos Ativos ---');
+      gameState.character.statusEffects.forEach(e => {
+        statsLines.push(`  - ${e.id} (${e.duration} turnos restantes)`);
+      });
+    }
+    if (gameState.activeSummons.length > 0) {
+      statsLines.push('--- Invocações ---');
+      gameState.activeSummons.forEach(s => {
+        statsLines.push(`  - ${s.name}: ${s.stats.hp}/${s.stats.maxHp} HP`);
+      });
+    }
+    return statsLines;
+  };
+
+  const executeCommand = (command: string) => {
+    const lowerCommand = command.toLowerCase().trim();
+    const [cmd, ...args] = lowerCommand.split(' ');
+    setHistory(prev => [...prev, `> ${command}`]);
+    let response: string[] = [];
+
+    if (gameState.gameState === 'AWAITING_NAME') {
+      dispatch({ type: 'SET_NAME', payload: command.trim() });
+      response = [`Belo nome, ${command.trim()}!`, "Agora, escolha sua classe (digite o nome ou número):", ...listClasses()];
+      setHistory(prev => [...prev, ...response]);
+      return;
+    }
+    
+    if (gameState.gameState === 'AWAITING_CLASS') {
+      let chosenClass;
+      const index = parseInt(lowerCommand, 10);
+      if (!isNaN(index) && index > 0 && index <= availableClasses.length) {
+        chosenClass = availableClasses[index - 1];
+      } else {
+        chosenClass = availableClasses.find(c => c.name.toLowerCase() === lowerCommand);
+      }
+      if (chosenClass) {
+        dispatch({ type: 'SET_CLASS', payload: chosenClass.name.toLowerCase() });
+        response = [`Personagem criado!`, `Você tem 3 pontos de atributo para gastar.`, "Digite 'stats' ou 'up [stat] [qtd]'."];
+      } else {
+        response = [`Classe '${command}' não encontrada.`, "Escolha pelo nome ou número:", ...listClasses()];
+      }
+      setHistory(prev => [...prev, ...response]);
+      return;
+    }
+    
+    if (gameState.gameState === 'IN_COMBAT') {
+      let playerAction: 'attack' | 'run' | 'invalid' | { skill: Skill } | { item: Item } = 'invalid';
+      let responseLog: string[] = [];
+      let stopExecution = false;
+
+      if (cmd === 'stats') {
+        responseLog.push(...showStats());
+        if (gameState.currentMonster) responseLog.push(...showMonsterStats(gameState.currentMonster));
+        stopExecution = true;
+      } else if ((cmd === 'cast' || cmd === 'use') && args.length === 0) {
+        responseLog = (cmd === 'use') ? showCombatInventory() : showCombatAbilities();
+        stopExecution = true;
+      }
+
+      if (stopExecution) {
+        setHistory(prev => [...prev, ...responseLog]);
+        return;
+      }
+
+      if (cmd === 'attack' || cmd === 'a') playerAction = 'attack';
+      else if (cmd === 'run') playerAction = 'run';
+      else if (cmd === 'cast') {
+        const query = args.join(' ');
+        const allSkills = gameState.character?.knownSkills || [];
+        const magicSkills = allSkills.filter(s => s.type === 'Magic');
+        const skill = findInList(query, magicSkills);
+        if (skill) {
+          const cooldownTurns = gameState.character?.skillCooldowns.get(skill.id);
+          if (cooldownTurns) {
+            responseLog = [`A habilidade '${skill.name}' está em recarga! (${cooldownTurns} turnos).`];
+            stopExecution = true;
+          } else playerAction = { skill };
+        } else {
+          responseLog = [`Magia '${query}' não encontrada.`];
+          stopExecution = true;
+        }
+      } else if (cmd === 'use') {
+        const query = args.join(' ');
+        const allItems = gameState.character?.inventory || [];
+        const potions = allItems.filter(i => i.type === 'Potion');
+        const item = findInList(query, potions);
+        if (item) playerAction = { item };
+        else {
+          const allSkills = gameState.character?.knownSkills || [];
+          const nonMagicSkills = allSkills.filter(s => s.type !== 'Magic');
+          const skill = findInList(query, nonMagicSkills);
+          if (skill) {
+            const cooldownTurns = gameState.character?.skillCooldowns.get(skill.id);
+            if (cooldownTurns) {
+              responseLog = [`A habilidade '${skill.name}' está em recarga! (${cooldownTurns} turnos).`];
+              stopExecution = true;
+            } else playerAction = { skill };
+          } else {
+            responseLog = [`'${query}' não é uma Poção ou Habilidade válida.`];
+            stopExecution = true;
+          }
+        }
+      }
+
+      if (stopExecution) {
+        setHistory(prev => [...prev, ...responseLog]);
+        return;
+      }
+      
+      if (playerAction === 'invalid') {
+        responseLog = ["Comando inválido em combate. Use 'attack', 'run', 'use', 'cast', ou 'stats'."];
+      } else {
+        responseLog = processCombatTurn(playerAction); 
+      }
+      setHistory(prev => [...prev, ...responseLog]);
+      return;
+    }
+
+    const requiresChar = ['stats', 'train', 'i', 'inventory', 'equip', 'f', 'find', 'abilities', 'up'];
+    if (requiresChar.includes(cmd) && !gameState.character) {
+      response = ["Você precisa criar um personagem primeiro. Digite 'new game'."];
+      setHistory(prev => [...prev, ...response]);
+      return;
+    }
+
+    switch (cmd) {
+      case 'up': {
+        if (!gameState.character) { response = ["Crie um personagem."]; break; }
+        const stat = args[0] as TrainableStat;
+        const amount = parseInt(args[1] || '1', 10);
+        if (!['str', 'dex', 'int'].includes(stat)) {
+           response = ["Uso: up [str | dex | int] [qtd]"];
+           break;
+        }
+        if (gameState.character.attributePoints < amount) {
+           response = [`Pontos insuficientes. Você tem ${gameState.character.attributePoints}.`];
+           break;
+        }
+        dispatch({ type: 'DISTRIBUTE_POINT', payload: { stat, amount } });
+        response = [`Você aumentou ${stat.toUpperCase()} em ${amount}!`];
+        break;
+      }
+      case 'train': {
+        if (!gameState.character) { response = ["Crie um personagem."]; break; }
+        const { character } = gameState;
+        const now = Date.now();
+        const oneDay = 1000 * 60 * 60 * 24;
+        if (now - character.lastStaminaRefresh > oneDay) character.stamina = 3;
+
+        if (character.stamina <= 0) {
+          const timeLeft = oneDay - (now - character.lastStaminaRefresh);
+          const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+          const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+          response = [`Você está exausto. Volte em ${hours}h ${minutes}m.`];
+          break;
+        }
+        
+        const statToTrain = args[0]?.toLowerCase() as TrainableStat;
+        if (!['str', 'dex', 'int'].includes(statToTrain)) {
+            response = ["Uso: train [str | dex | int]"];
+            break;
+        }
+        
+        const gain = Math.floor(Math.random() * 3) + 1;
+        const xp = Math.floor(Math.random() * 16) + 5;
+        
+        dispatch({ type: 'TRAIN', payload: { stat: statToTrain, gain, xp } });
+        dispatch({ type: 'USE_STAMINA' });
+        response = [`Treino intenso! +${gain} ${statToTrain.toUpperCase()} e +${xp} XP.`, `(Stamina: ${character.stamina - 1})`];
+        break;
+      }
+      case 'shop': {
+        const stock = checkAndRefreshShop();
+        response = ["--- Loja do Aventureiro ---", "(O estoque muda a cada hora)", ...stock.map((item, index) => `  ${index + 1}. ${item.name} (${item.type}) - ${item.price} G`), "Use 'buy [numero]' para comprar."];
+        break;
+      }
+      case 'buy': {
+        if (!gameState.character) {
+          response = ["Crie um personagem primeiro."];
+          break;
+        }
+        const stock = checkAndRefreshShop();
+        const index = parseInt(args[0], 10) - 1;
+        if (isNaN(index) || index < 0 || index >= stock.length) {
+          response = [`Item inválido. Use 'buy [1-${stock.length}]'.`];
+          break;
+        }
+        const itemToBuy = stock[index];
+        if (gameState.character.gold < itemToBuy.price) {
+          response = [`Você não tem Ouro suficiente! (${itemToBuy.price} G).`];
+          break;
+        }
+        dispatch({ type: 'BUY_ITEM', payload: { item: itemToBuy, cost: itemToBuy.price } });
+        response = [`Você comprou ${itemToBuy.name} por ${itemToBuy.price} G.`];
+        break;
+      }
+      case 'sell': {
+        if (!gameState.character) {
+          response = ["Crie um personagem primeiro."];
+          break;
+        }
+        const query = args[0]; 
+        const qtyArg = args[1]; 
+        if (!query) {
+          response = ["Uso: sell [nome/num] [qtd] (Ex: sell ouro 5)"];
+          break;
+        }
+        const itemTemplate = findInList(query, gameState.character.inventory);
+        if (!itemTemplate) {
+          response = [`Item '${query}' não encontrado no inventário.`];
+          break;
+        }
+        if (itemTemplate.price <= 0) {
+          response = [`${itemTemplate.name} não tem valor comercial.`];
+          break;
+        }
+        const countOwned = gameState.character.inventory.filter(i => i.id === itemTemplate.id).length;
+        let qtyToSell = 1;
+        if (qtyArg) {
+          const parsedQty = parseInt(qtyArg, 10);
+          if (isNaN(parsedQty) || parsedQty <= 0) {
+            response = [`Quantidade inválida: '${qtyArg}'.`];
+            break;
+          }
+          qtyToSell = parsedQty;
+        }
+        if (qtyToSell > countOwned) {
+          response = [`Você só tem ${countOwned}x ${itemTemplate.name}.`];
+          break;
+        }
+        const sellPriceUnit = Math.floor(itemTemplate.price / 2);
+        const totalGain = sellPriceUnit * qtyToSell;
+        dispatch({ type: 'SELL_ITEM', payload: { itemId: itemTemplate.id, price: sellPriceUnit, qty: qtyToSell } });
+        response = [`Você vendeu ${qtyToSell}x ${itemTemplate.name} por ${totalGain} G.`];
+        break;
+      }
+      case 'evolve': {
+        if (!gameState.character) {
+          response = ["Crie um personagem primeiro."];
+          break;
+        }
+        const char = gameState.character;
+        const currentClass = char.charClass.name;
+        const evolutionData = CLASS_EVOLUTIONS[currentClass];
+        if (!evolutionData) {
+          response = [`A classe ${currentClass} não tem mais evoluções disponíveis.`];
+          break;
+        }
+        if (char.level < evolutionData.level) {
+          response = [`Você precisa ser nível ${evolutionData.level} para evoluir (Nível atual: ${char.level}).`];
+          break;
+        }
+        const inputQuery = args.join(' ');
+        if (!inputQuery) {
+          response = [`Evoluções disponíveis para ${currentClass}:`, ...evolutionData.options.map((opt, index) => `  ${index + 1}. ${opt}`), `Digite 'evolve [Nome ou Número]' para evoluir.`];
+          break;
+        }
+        let validOption: string | undefined;
+        const index = parseInt(inputQuery, 10);
+        if (!isNaN(index) && index > 0 && index <= evolutionData.options.length) {
+          validOption = evolutionData.options[index - 1];
+        } else {
+          validOption = evolutionData.options.find(opt => opt.toLowerCase() === inputQuery.toLowerCase());
+        }
+        if (validOption) {
+          dispatch({ type: 'EVOLVE_CLASS', payload: validOption });
+          response = [`*** PARABÉNS! ***`, `Você evoluiu de ${currentClass} para ${validOption}!`, `Novas habilidades e poderes foram desbloqueados.`];
+        } else {
+          response = [`'${inputQuery}' não é uma opção válida. Escolha entre 1 e ${evolutionData.options.length}.`];
+        }
+        break;
+      }
+      case 'help': response = showHelp(); break;
+      case 'pn':
+      case 'patchnotes': response = showPatchNotes(); break;
+      case 'repo': window.open('https://github.com/guigasprog/QuestTerm', '_blank'); response = ["Abrindo repositório oficial..."]; break;
+      case 'projects': response = showPortfolio(); break;
+      case 'skills': response = showSkills(); break;
+      case 'contact': response = ['Você pode me encontrar em: guilherme.d.martins@outlook.com', 'Github: https://github.com/guigasprog']; break;
+      case 'clear': setHistory([]); return;
+      case 'new':
+        if (args[0] === 'game') { dispatch({ type: 'START_CREATION' }); response = ["Iniciando criação...", "Qual é o nome do seu aventureiro?"]; }
+        else response = [`Comando '${command}' não encontrado.`];
+        break;
+      case 'ng': dispatch({ type: 'START_CREATION' }); response = ["Iniciando criação...", "Qual é o nome do seu aventureiro?"]; break;
+      case 'classes': response = listClasses(); break;
+      case 'stats': response = showStats(); break;
+      case 'inventory': case 'i': response = showInventory(); break;
+      case 'abilities': response = showAbilities(); break;
+      case 'equip': response = handleEquip(args); break;
+      case 'find': case 'f': if (args[0] === 'battle' || cmd === 'f') response = handleFindBattle(); else response = [`Comando '${command}' não encontrado.`]; break;
+      case 'open': {
+        if (!projects || projects.length === 0) { response = ["Projetos ainda não carregados. Tente novamente em um segundo."]; break; }
+        const index = parseInt(args[0], 10) - 1;
+        if (isNaN(index) || index < 0 || index >= projects.length) { response = [`Uso: open [1-${projects.length}]`]; } 
+        else { const repo = projects[index]; window.open(repo.html_url, '_blank'); response = [`Abrindo ${repo.name} no GitHub...`]; }
+        break;
+      }
+      case 'use': {
+        if (!gameState.character) { response = ["Você precisa criar um personagem primeiro."]; break; }
+        const query = args.join(' ');
+        if (!query) { response = ["Uso: use [nome do item] ou [numero do inventário]"]; break; }
+        const item = findInList(query, gameState.character.inventory);
+        if (!item) { response = [`'${query}' não encontrado no inventário.`]; break; }
+        if (item.type !== 'Potion') { response = [`Você só pode 'usar' poções fora de combate.`]; break; }
+        const potion = item as Potion;
+        switch (potion.effect) {
+          case 'heal': {
+            const maxHP = gameState.character.getCombatStats().hp;
+            if (gameState.character.currentHP >= maxHP) response = ["Você já está com a vida cheia."];
+            else { dispatch({ type: 'PLAYER_HEAL', payload: potion.value }); dispatch({ type: 'REMOVE_ITEM_BY_ID', payload: potion.id }); response = [`Você usou ${potion.name} e recuperou ${potion.value} HP.`]; }
+            break;
+          }
+          case 'buff': {
+            if (!potion.buffId || !potion.duration) { response = ["Erro: Esta poção de buff está configurada incorretamente."]; break; }
+            const statusId: StatusEffectId = potion.buffId;
+            const duration = potion.duration;
+            const potency = potion.value;
+            dispatch({ type: 'APPLY_PLAYER_STATUS', payload: { id: statusId, duration: duration, potency: potency } });
+            dispatch({ type: 'REMOVE_ITEM_BY_ID', payload: potion.id });
+            response = [`Você usou ${potion.name} e sente o efeito (${statusId}) por ${duration} turnos!`];
+            break;
+          }
+          case 'poison': response = ["Você se olha estranhamente... por que você usaria isso em você mesmo?"]; break;
+        }
+        break;
+      }
+      case 'memorial': response = showMemorial(); break;
+      case 'abandon':
+        if (args[0] === 'character') {
+          if (gameState.character) { saveToMemorial(gameState.character); dispatch({ type: 'ABANDON_CHARACTER' }); response = ["Personagem abandonado. O progresso foi apagado.", "Digite 'new game' para começar de novo."]; } 
+          else response = ["Não há personagem para abandonar."];
+        } else response = ["Comando inválido. Você quis dizer: 'abandon character' ?"];
+        break;
+      default: response = [`Comando '${command}' não encontrado. Digite 'help'.`];
+    }
+    
+    setHistory(prev => [...prev, ...response]);
+  };
+
+  // --- FUNÇÕES DE EXIBIÇÃO QUE ESTAVAM FALTANDO ---
+
+  const listClasses = (): string[] => {
+    return availableClasses.map((c, index) => 
+      `  ${index + 1}. ${c.name}: ${c.description} (HP:${c.baseStats.hp} STR:${c.baseStats.str} DEX:${c.baseStats.dex} INT:${c.baseStats.int})`
+    );
+  };
+
+  const showPortfolio = (): string[] => {
+    if (projects === null) return ["Carregando projetos do GitHub..."];
+    if (projects.length === 0) return ["Não foi possível carregar projetos."];
+    
+    const projectLines = projects.map((repo, index) => {
+      const description = repo.description || 'Sem descrição.';
+      return `  ${index + 1}. ${repo.name} (★${repo.stargazers_count})\n     - ${description}`;
+    });
     return [
-      `!!! Um ${combatMonster.name} selvagem (Nível ${combatMonster.minLevel}) aparece !!!`, 
-      "Digite 'attack', 'use', 'cast' ou 'run'."
+      '--- Meus Projetos (do GitHub) ---',
+      ...projectLines,
+      "  (Use `open [número]` para abrir no navegador)"
+    ];
+  };
+
+  const showSkills = (): string[] => [
+    '--- Habilidades ---',
+    '  Frontend:   Angular, React, TypeScript, TailwindCSS',
+    '  Backend:    Java (Spring-Boot), Node.js (Express)',
+    '  Mobile:     React Native (Expo, Bare)',
+    '  Database:   PostgreSQL, MongoDB, Redis',
+    '  DevOps:     Docker, GitHub Actions, AWS (S3, EC2)',
+    '  Design:     Figma, UI/UX Principles'
+  ];
+
+  const showMonsterStats = (monster: CombatMonster): string[] => {
+    const healthBar = createHealthBar(monster.currentHP, monster.stats.hp);
+    return [
+      `--- STATUS: ${monster.name} (Nível ${monster.minLevel}) ---`,
+      `  HP:  ${healthBar}`, 
+      `  STR: ${monster.stats.str} | DEX: ${monster.stats.dex} | INT: ${monster.stats.int}`,
+      `  Efeitos: ${monster.statusEffects.length > 0 ? monster.statusEffects.map(e => e.id).join(', ') : 'Nenhum'}`,
+    ];
+  };
+
+  const showInventory = (): string[] => {
+    if (!gameState.character || gameState.character.inventory.length === 0) return ["Seu inventário está vazio."];
+    
+    const inventoryList = gameState.character.inventory;
+    const uniqueItems = [...new Map(inventoryList.map(item => [item.id, item])).values()];
+    
+    return [
+      '--- Inventário ---',
+      ...uniqueItems.map((item, index) => {
+        const count = inventoryList.filter(i => i.id === item.id).length;
+        const tierInfo = (item.type === 'Equipment') ? ` [T${(item as Equipment).tier}]` : '';
+        const sellPrice = Math.floor(item.price / 2);
+        return `  ${index + 1}. ${item.name}${tierInfo} ${count > 1 ? `(x${count})` : ''} [Vende: ${sellPrice}G]`;
+      }),
+      "Use 'equip [num]', 'use [num]' ou 'sell [num] [qty]'."
     ];
   };
 
@@ -890,9 +1217,8 @@ export function useTerminalLogic() {
 
     return [
       '--- Suas Habilidades ---',
-      ...knownSkills.map((skill, index) => { // Adiciona 'index'
+      ...knownSkills.map((skill, index) => { 
         const cooldown = skillCooldowns.get(skill.id);
-        // Usa o índice + 1 para a lista
         return `  ${index + 1}. ${skill.name} (${skill.type}) [${cooldown ? `RECARGA: ${cooldown}t` : 'PRONTO'}]\n     ${skill.description}`;
       }),
       "Use 'cast [num/nome]' ou 'use [num/nome]' em combate."
@@ -903,7 +1229,7 @@ export function useTerminalLogic() {
     '--- Comandos do Portfólio ---',
     '  help           - Mostra esta lista de ajuda.',
     '  projects       - Exibe meus projetos do GitHub.',
-    '  pn | patchnotes - Mostra as últimas atualizações do sistema (commits).',
+    '  pn | patchnotes - Mostra as últimas atualizações do sistema.',
     '  open [numero]  - Abre um projeto no GitHub.',
     '  skills         - Lista minhas habilidades técnicas.',
     '  contact        - Mostra minhas informações de contato.',
@@ -919,9 +1245,12 @@ export function useTerminalLogic() {
     '  use [item]     - Usa um item (ex: Poção de Cura).',
     '  equip [item]   - Equipa um item do inventário.',
     '  train          - Treina e melhora 1 atributo aleatório.',
+    '  up [stat] [qtd] - Distribui pontos de atributo (STR, DEX, INT).',
     '  f | find battle - Procura por um monstro para lutar.',
     '  shop           - Mostra a loja (estoque rotativo).',
     '  buy [numero]   - Compra um item da loja.',
+    '  sell [item] [qtd] - Vende um item da loja.',
+    '  evolve [classe] - Evolui sua classe (Nv. 10/20).',
     '',
     '--- Comandos de Combate (Apenas em batalha) ---',
     '  stats          - Mostra stats do jogador e monstro (ação livre).',
@@ -930,645 +1259,6 @@ export function useTerminalLogic() {
     '  cast [magia]   - Lança uma MAGIA (Bola de Fogo).',
     '  run            - Tenta fugir da batalha.'
   ];
-
-  const listClasses = (): string[] => {
-    return availableClasses.map((c, index) => 
-      `  ${index + 1}. ${c.name}: ${c.description} (HP:${c.baseStats.hp} STR:${c.baseStats.str} DEX:${c.baseStats.dex} INT:${c.baseStats.int})`
-    );
-  };
-  
-  const showPortfolio = (): string[] => {
-    if (projects === null) {
-      return ["Carregando projetos do GitHub..."];
-    }
-    
-    if (projects.length === 0) {
-      return ["Não foi possível carregar projetos ou nenhum repositório encontrado."];
-    }
-    
-    const projectLines = projects.map((repo, index) => {
-      const description = repo.description || 'Sem descrição.';
-      return `  ${index + 1}. ${repo.name} (★${repo.stargazers_count})\n     - ${description}`;
-    });
-
-    return [
-      '--- Meus Projetos (do GitHub) ---',
-      ...projectLines,
-      "  (Use `open [número]` para abrir no navegador)"
-    ];
-  };
-  
-  const showSkills = (): string[] => [
-    '--- Habilidades ---',
-    '  Frontend:   Angular, React, TypeScript, TailwindCSS',
-    '  Backend:    Java (Spring-Boot), Node.js (Express)',
-    '  Mobile:     React Native (Expo, Bare)',
-    '  Database:   PostgreSQL, MongoDB, Redis',
-    '  DevOps:     Docker, GitHub Actions, AWS (S3, EC2)',
-    '  Design:     Figma, UI/UX Principles'
-  ];
-
-  const showStats = (): string[] => {
-    if (!gameState.character) return ["Sem personagem. Digite 'new character'."];
-    
-    const char = gameState.character;
-    const base = char.baseStats;
-    const combat = char.getCombatStats();
-    
-    // --- LÓGICA DA BARRA DE VIDA ---
-    const healthBar = createHealthBar(char.currentHP, combat.hp);
-    
-    const statsLines = [
-      `--- STATUS: ${char.name} (O ${char.charClass.name}) ---`,
-      `  Nível: ${char.level} (${char.exp} / ${char.expToNextLevel} EXP)`,
-      `  Ouro:  ${char.gold} G`,
-      `  HP:    ${healthBar}`, // <-- ATUALIZADO
-      `  STR:   ${combat.str} ${combat.str > base.str ? `(${base.str}+${combat.str - base.str})` : ''}`,
-      `  DEX:   ${combat.dex} ${combat.dex > base.dex ? `(${base.dex}+${combat.dex - base.dex})` : ''}`,
-      `  INT:   ${combat.int} ${combat.int > base.int ? `(${base.int}+${combat.int - base.int})` : ''}`,
-      `--- Equipamento ---`,
-      `  Arma:  ${char.equipment.weapon?.name || 'Nenhuma'}`,
-      `  Armadura: ${char.equipment.armor?.name || 'Nenhuma'}`,
-    ];
-    if (gameState.character && gameState.character.statusEffects.length > 0) {
-      statsLines.push('--- Efeitos Ativos ---');
-      gameState.character.statusEffects.forEach(e => {
-        statsLines.push(`  - ${e.id} (${e.duration} turnos restantes)`);
-      });
-    }
-    if (gameState.activeSummons.length > 0) {
-      statsLines.push('--- Invocações ---');
-      gameState.activeSummons.forEach(s => {
-        statsLines.push(`  - ${s.name}: ${s.stats.hp}/${s.stats.maxHp} HP`);
-      });
-    }
-    return statsLines;
-  };
-  
-
-  const showMonsterStats = (monster: CombatMonster): string[] => {
-    const healthBar = createHealthBar(monster.currentHP, monster.stats.hp);
-
-    return [
-      `--- STATUS: ${monster.name} (Nível ${monster.minLevel}) ---`,
-      `  HP:  ${healthBar}`, 
-      `  STR: ${monster.stats.str} | DEX: ${monster.stats.dex} | INT: ${monster.stats.int}`,
-      `  Efeitos: ${monster.statusEffects.length > 0 ? monster.statusEffects.map(e => e.id).join(', ') : 'Nenhum'}`,
-    ];
-  };
-
-  const showInventory = (): string[] => {
-    if (!gameState.character || gameState.character.inventory.length === 0) {
-      return ["Seu inventário está vazio."];
-    }
-    
-    const inventoryList = gameState.character.inventory;
-    const uniqueItems = [ // Lista agrupada por ID
-      ...new Map(inventoryList.map(item => [item.id, item])).values()
-    ];
-    
-    return [
-      '--- Inventário ---',
-      ...uniqueItems.map((item, index) => {
-        const count = inventoryList.filter(i => i.id === item.id).length;
-        // Mostra o Tier se for equipamento
-        const tierInfo = (item.type === 'Equipment') ? ` [T${(item as Equipment).tier}]` : '';
-        const sellPrice = Math.floor(item.price / 2);
-        
-        return `  ${index + 1}. ${item.name}${tierInfo} ${count > 1 ? `(x${count})` : ''} [Vende: ${sellPrice}G]`;
-      }),
-      "Use 'equip [num]', 'use [num]' ou 'sell [num] [qty]'."
-    ];
-  };
-
-  const executeCommand = (command: string) => {
-    const lowerCommand = command.toLowerCase().trim();
-    const [cmd, ...args] = lowerCommand.split(' ');
-
-    setHistory(prev => [...prev, `> ${command}`]);
-    
-    let response: string[] = [];
-
-    if (gameState.gameState === 'AWAITING_NAME') {
-      dispatch({ type: 'SET_NAME', payload: command.trim() });
-      response = [`Belo nome, ${command.trim()}!`, "Agora, escolha sua classe (digite o nome):", ...listClasses()];
-      setHistory(prev => [...prev, ...response]);
-      return;
-    }
-    
-    if (gameState.gameState === 'AWAITING_CLASS') {
-      let chosenClass;
-
-      const index = parseInt(lowerCommand, 10);
-      if (!isNaN(index) && index > 0 && index <= availableClasses.length) {
-        chosenClass = availableClasses[index - 1];
-      } else {
-        chosenClass = availableClasses.find(c => c.name.toLowerCase() === lowerCommand);
-      }
-
-      if (chosenClass) {
-        dispatch({ type: 'SET_CLASS', payload: chosenClass.name.toLowerCase() });
-        
-        response = [
-          `Personagem criado! Você é um ${chosenClass.name}.`, 
-          "Digite 'stats' para ver seus atributos ou 'f' para encontrar uma batalha."
-        ];
-      } else {
-        response = [
-          `Classe '${command}' não encontrada.`, 
-          "Escolha pelo nome ou número:", 
-          ...listClasses()
-        ];
-      }
-      
-      setHistory(prev => [...prev, ...response]);
-      return;
-    }
-    
-    if (gameState.gameState === 'IN_COMBAT') {
-      let playerAction: 'attack' | 'run' | 'invalid' | { skill: Skill } | { item: Item } = 'invalid';
-      let responseLog: string[] = [];
-      let stopExecution = false;
-
-      // --- 1. Ações Livres (Não gastam turno) ---
-      if (cmd === 'stats') {
-        responseLog.push(...showStats());
-        if (gameState.currentMonster) {
-          responseLog.push(...showMonsterStats(gameState.currentMonster));
-        }
-        stopExecution = true;
-      }
-      
-      else if ((cmd === 'cast' || cmd === 'use') && args.length === 0) {
-        // Usa os novos helpers de combate
-        responseLog = (cmd === 'use') ? showCombatInventory() : showCombatAbilities();
-        stopExecution = true;
-      }
-
-      if (stopExecution) {
-        setHistory(prev => [...prev, ...responseLog]);
-        return;
-      }
-
-      // --- 2. Ações de Turno (Gastam o turno) ---
-      if (cmd === 'attack' || cmd === 'a') {
-        playerAction = 'attack';
-      } 
-      
-      else if (cmd === 'run') {
-        playerAction = 'run';
-      }
-      
-      else if (cmd === 'cast') {
-        const query = args.join(' ');
-        const allSkills = gameState.character?.knownSkills || [];
-        const magicSkills = allSkills.filter(s => s.type === 'Magic');
-        const skill = findInList(query, magicSkills); // Busca por num/nome
-        
-        if (skill) {
-          const cooldownTurns = gameState.character?.skillCooldowns.get(skill.id);
-          if (cooldownTurns) {
-            responseLog = [`A habilidade '${skill.name}' está em recarga! (${cooldownTurns} turnos).`];
-            stopExecution = true;
-          } else {
-            playerAction = { skill };
-          }
-        } else {
-          responseLog = [`Magia '${query}' não encontrada.`];
-          stopExecution = true;
-        }
-      } 
-      
-      else if (cmd === 'use') {
-        const query = args.join(' ');
-        const allItems = gameState.character?.inventory || [];
-        const potions = allItems.filter(i => i.type === 'Potion');
-        const item = findInList(query, potions); // 1. Tenta achar Poção
-        
-        if (item) {
-          playerAction = { item };
-        } else {
-          const allSkills = gameState.character?.knownSkills || [];
-          const nonMagicSkills = allSkills.filter(s => s.type !== 'Magic');
-          const skill = findInList(query, nonMagicSkills); // 2. Tenta achar Habilidade
-          
-          if (skill) {
-            const cooldownTurns = gameState.character?.skillCooldowns.get(skill.id);
-            if (cooldownTurns) {
-              responseLog = [`A habilidade '${skill.name}' está em recarga! (${cooldownTurns} turnos).`];
-              stopExecution = true;
-            } else {
-              playerAction = { skill };
-            }
-          } else {
-            responseLog = [`'${query}' não é uma Poção ou Habilidade válida.`];
-            stopExecution = true;
-          }
-        }
-      }
-
-      // --- 3. Processamento Final do Turno ---
-      if (stopExecution) {
-        setHistory(prev => [...prev, ...responseLog]);
-        return;
-      }
-      
-      if (playerAction === 'invalid') {
-        responseLog = ["Comando inválido em combate. Use 'attack', 'run', 'use', 'cast', ou 'stats'."];
-      } else {
-        responseLog = processCombatTurn(playerAction); 
-      }
-      
-      setHistory(prev => [...prev, ...responseLog]);
-      return;
-    }
-
-    const requiresChar = ['stats', 'train', 'i', 'inventory', 'equip', 'f', 'find', 'abilities'];
-    if (requiresChar.includes(cmd) && !gameState.character) {
-      response = ["Você precisa criar um personagem primeiro. Digite 'new game'."];
-      setHistory(prev => [...prev, ...response]);
-      return;
-    }
-
-    switch (cmd) {
-      case 'shop': {
-        const stock = checkAndRefreshShop();
-        response = [
-          "--- Loja do Aventureiro ---",
-          "(O estoque muda a cada hora)",
-          ...stock.map((item, index) => 
-            `  ${index + 1}. ${item.name} (${item.type}) - ${item.price} G`
-          ),
-          "Use 'buy [numero]' para comprar."
-        ];
-        break;
-      }
-
-      case 'buy': {
-        if (!gameState.character) {
-          response = ["Crie um personagem primeiro."];
-          break;
-        }
-        
-        const stock = checkAndRefreshShop();
-        const index = parseInt(args[0], 10) - 1;
-
-        if (isNaN(index) || index < 0 || index >= stock.length) {
-          response = [`Item inválido. Use 'buy [1-${stock.length}]'.`];
-          break;
-        }
-
-        const itemToBuy = stock[index];
-        if (gameState.character.gold < itemToBuy.price) {
-          response = [`Você não tem Ouro suficiente! (${itemToBuy.price} G).`];
-          break;
-        }
-
-        dispatch({ type: 'BUY_ITEM', payload: { item: itemToBuy, cost: itemToBuy.price } });
-        response = [`Você comprou ${itemToBuy.name} por ${itemToBuy.price} G.`];
-        break;
-      }
-
-      case 'sell': {
-        if (!gameState.character) {
-          response = ["Crie um personagem primeiro."];
-          break;
-        }
-        
-        // Args[0] = Nome ou ID do item
-        // Args[1] = Quantidade (Opcional)
-        const query = args[0]; 
-        const qtyArg = args[1]; // Pode ser undefined
-
-        if (!query) {
-          response = ["Uso: sell [nome/num] [qtd] (Ex: sell ouro 5)"];
-          break;
-        }
-
-        // 1. Encontra o TIPO do item
-        const itemTemplate = findInList(query, gameState.character.inventory);
-
-        if (!itemTemplate) {
-          response = [`Item '${query}' não encontrado no inventário.`];
-          break;
-        }
-
-        if (itemTemplate.price <= 0) {
-          response = [`${itemTemplate.name} não tem valor comercial.`];
-          break;
-        }
-
-        // 2. Conta quantos desse item o jogador TEM de verdade
-        const countOwned = gameState.character.inventory.filter(i => i.id === itemTemplate.id).length;
-
-        // 3. Define a quantidade a vender
-        let qtyToSell = 1; // Padrão é 1
-
-        if (qtyArg) {
-          const parsedQty = parseInt(qtyArg, 10);
-          if (isNaN(parsedQty) || parsedQty <= 0) {
-            response = [`Quantidade inválida: '${qtyArg}'.`];
-            break;
-          }
-          qtyToSell = parsedQty;
-        }
-
-        // 4. Validação: Você tem itens suficientes?
-        if (qtyToSell > countOwned) {
-          response = [`Você só tem ${countOwned}x ${itemTemplate.name}.`];
-          break;
-        }
-
-        // 5. Executa a venda
-        const sellPriceUnit = Math.floor(itemTemplate.price / 2);
-        const totalGain = sellPriceUnit * qtyToSell;
-
-        dispatch({ 
-          type: 'SELL_ITEM', 
-          payload: { itemId: itemTemplate.id, price: sellPriceUnit, qty: qtyToSell } 
-        });
-        
-        response = [`Você vendeu ${qtyToSell}x ${itemTemplate.name} por ${totalGain} G.`];
-        break;
-      }
-
-      case 'evolve': {
-        if (!gameState.character) {
-          response = ["Crie um personagem primeiro."];
-          break;
-        }
-        const char = gameState.character;
-        const currentClass = char.charClass.name;
-        const evolutionData = CLASS_EVOLUTIONS[currentClass];
-
-        if (!evolutionData) {
-          response = [`A classe ${currentClass} não tem mais evoluções disponíveis.`];
-          break;
-        }
-
-        if (char.level < evolutionData.level) {
-          response = [`Você precisa ser nível ${evolutionData.level} para evoluir (Nível atual: ${char.level}).`];
-          break;
-        }
-
-        const inputQuery = args.join(' '); // O que o usuário digitou
-        
-        if (!inputQuery) {
-          response = [
-            `Evoluções disponíveis para ${currentClass}:`,
-            // MOSTRA OS NÚMEROS (Índice + 1)
-            ...evolutionData.options.map((opt, index) => `  ${index + 1}. ${opt}`),
-            `Digite 'evolve [Nome ou Número]' para evoluir.`
-          ];
-          break;
-        }
-
-        let validOption: string | undefined;
-
-        // 1. Tenta buscar pelo NÚMERO
-        const index = parseInt(inputQuery, 10);
-        if (!isNaN(index) && index > 0 && index <= evolutionData.options.length) {
-          validOption = evolutionData.options[index - 1];
-        } else {
-          // 2. Se não for número, tenta buscar pelo NOME
-          validOption = evolutionData.options.find(opt => opt.toLowerCase() === inputQuery.toLowerCase());
-        }
-
-        if (validOption) {
-          dispatch({ type: 'EVOLVE_CLASS', payload: validOption });
-          response = [
-            `*** PARABÉNS! ***`,
-            `Você evoluiu de ${currentClass} para ${validOption}!`,
-            `Novas habilidades e poderes foram desbloqueados.`
-          ];
-        } else {
-          response = [`'${inputQuery}' não é uma opção válida. Escolha entre 1 e ${evolutionData.options.length}.`];
-        }
-        break;
-      }
-
-      case 'help':
-        response = showHelp();
-        break;
-      case 'pn':
-      case 'patchnotes':
-        response = showPatchNotes();
-        break;
-      case 'repo':
-        window.open('https://github.com/guigasprog/QuestTerm', '_blank');
-        response = ["Abrindo repositório oficial..."];
-        break;
-      case 'projects':
-        response = showPortfolio();
-        break;
-      case 'skills':
-        response = showSkills();
-        break;
-      case 'contact':
-        response = ['Você pode me encontrar em: guilherme.d.martins@outlook.com', 'Github: https://github.com/guigasprog'];
-        break;
-      case 'clear':
-        setHistory([]);
-        return;
-      case 'new':
-        if (args[0] === 'game') {
-          dispatch({ type: 'START_CREATION' });
-          response = ["Iniciando criação...", "Qual é o nome do seu aventureiro?"];
-        } else {
-           response = [`Comando '${command}' não encontrado.`];
-        }
-        break;
-      case 'ng':
-        dispatch({ type: 'START_CREATION' });
-        response = ["Iniciando criação...", "Qual é o nome do seu aventureiro?"];
-        break;
-      case 'classes':
-        response = listClasses();
-        break;
-      case 'stats':
-        response = showStats();
-        break;
-      case 'train': {
-        if (!gameState.character) {
-          response = ["Crie um personagem primeiro."];
-          break;
-        }
-        
-        const { character } = gameState;
-        const now = Date.now();
-        const oneDay = 1000 * 60 * 60 * 24;
-        
-        // 1. Checa e reseta a stamina se 24h passaram
-        if (now - character.lastStaminaRefresh > oneDay) {
-          character.stamina = 3; // O clone vai pegar isso
-        }
-
-        // 2. Checa se o jogador pode treinar
-        if (character.stamina <= 0) {
-          const timeLeft = oneDay - (now - character.lastStaminaRefresh);
-          const hours = Math.floor(timeLeft / (1000 * 60 * 60));
-          const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-          response = [`Você está exausto. Você pode treinar novamente em ${hours}h e ${minutes}m.`];
-          break;
-        }
-
-        // 3. Checa o atributo (str, dex, int)
-        const statToTrain = args[0]?.toLowerCase() as TrainableStat;
-        if (!['str', 'dex', 'int'].includes(statToTrain)) {
-          response = [`Uso: train [str | dex | int]. Você tem ${character.stamina} de stamina restante.`];
-          break;
-        }
-        
-        // 4. Sucesso!
-        dispatch({ type: 'TRAIN', payload: statToTrain });
-        dispatch({ type: 'USE_STAMINA' });
-        response = [`Você treinou ${statToTrain.toUpperCase()}!`, `(Stamina restante: ${character.stamina - 1})`];
-        break;
-      }
-      case 'inventory':
-      case 'i':
-        response = showInventory();
-        break;
-      case 'abilities':
-        response = showAbilities();
-        break;
-      case 'equip': {
-        if (!gameState.character) {
-          response = ["Crie um personagem primeiro."];
-          break;
-        }
-        const query = args.join(' ');
-        if (!query) {
-          response = ["Uso: equip [nome do item] ou [numero do inventário]"];
-          break;
-        }
-        
-        const item = findInList(query, gameState.character.inventory); // <-- ATUALIZADO
-        
-        if (!item) {
-          response = [`Item '${query}' não encontrado no inventário.`];
-          break;
-        }
-        if (item.type !== 'Equipment') {
-          response = [`'${item.name}' não é um item equipável.`];
-          break;
-        }
-        
-        dispatch({ type: 'EQUIP_ITEM', payload: item as Equipment });
-        response = [`Você equipou ${item.name}.`];
-        break;
-      }
-      case 'find':
-      case 'f':
-        if (args[0] === 'battle' || cmd === 'f') {
-          response = handleFindBattle();
-        } else {
-           response = [`Comando '${command}' não encontrado.`];
-        }
-        break;
-      case 'open': {
-        if (!projects || projects.length === 0) {
-          response = ["Projetos ainda não carregados. Tente novamente em um segundo."];
-          break;
-        }
-        const index = parseInt(args[0], 10) - 1;
-        
-        if (isNaN(index) || index < 0 || index >= projects.length) {
-          response = [`Uso: open [1-${projects.length}]`];
-        } else {
-          const repo = projects[index];
-          window.open(repo.html_url, '_blank');
-          response = [`Abrindo ${repo.name} no GitHub...`];
-        }
-        break;
-      }
-      case 'use': {
-        if (!gameState.character) {
-          response = ["Você precisa criar um personagem primeiro."];
-          break;
-        }
-        
-        const query = args.join(' ');
-        if (!query) {
-          response = ["Uso: use [nome do item] ou [numero do inventário]"];
-          break;
-        }
-
-        const item = findInList(query, gameState.character.inventory); // <-- ATUALIZADO
-
-        if (!item) {
-          response = [`'${query}' não encontrado no inventário.`];
-          break;
-        }
-
-        if (item.type !== 'Potion') {
-          response = [`Você só pode 'usar' poções fora de combate.`];
-          break;
-        }
-
-        const potion = item as Potion;
-
-        switch (potion.effect) {
-          case 'heal': {
-            const maxHP = gameState.character.getCombatStats().hp;
-            if (gameState.character.currentHP >= maxHP) {
-              response = ["Você já está com a vida cheia."];
-            } else {
-              dispatch({ type: 'PLAYER_HEAL', payload: potion.value });
-              dispatch({ type: 'REMOVE_ITEM_BY_ID', payload: potion.id });
-              response = [`Você usou ${potion.name} e recuperou ${potion.value} HP.`];
-            }
-            break;
-          }
-
-          case 'buff': {
-            if (!potion.buffId || !potion.duration) {
-              response = ["Erro: Esta poção de buff está configurada incorretamente."];
-              break;
-            }
-
-            const statusId: StatusEffectId = potion.buffId;
-            const duration = potion.duration;
-            const potency = potion.value;
-
-            dispatch({ 
-              type: 'APPLY_PLAYER_STATUS', 
-              payload: { id: statusId, duration: duration, potency: potency } 
-            });
-            dispatch({ type: 'REMOVE_ITEM_BY_ID', payload: potion.id });
-            response = [`Você usou ${potion.name} e sente o efeito (${statusId}) por ${duration} turnos!`];
-            break;
-          }
-
-          case 'poison': {
-            response = ["Você se olha estranhamente... por que você usaria isso em você mesmo?"];
-            break;
-          }
-        }
-        break;
-      }
-      case 'memorial':
-        response = showMemorial();
-        break;
-      case 'abandon':
-        if (args[0] === 'character') {
-          if (gameState.character) {
-            saveToMemorial(gameState.character);
-            dispatch({ type: 'ABANDON_CHARACTER' });
-            response = ["Personagem abandonado. O progresso foi apagado.", "Digite 'new game' para começar de novo."];
-          } else {
-            response = ["Não há personagem para abandonar."];
-          }
-        } else {
-          response = ["Comando inválido. Você quis dizer: 'abandon character' ?"];
-        }
-        break;
-      default:
-        response = [`Comando '${command}' não encontrado. Digite 'help'.`];
-    }
-    
-    setHistory(prev => [...prev, ...response]);
-  };
 
   return { history, executeCommand, gameState };
 }

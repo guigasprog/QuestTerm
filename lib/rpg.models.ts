@@ -1,4 +1,3 @@
-import { SKILLS_DB } from './game-data';
 
 export interface Stats {
   hp: number;
@@ -52,6 +51,8 @@ export type SkillType = 'Magic' | 'Skill';
 export type SkillTarget = 'Self' | 'Enemy';
 export type StatusEffectId = 'poisoned' 
   | 'damage_buff' 
+  | 'dexterity_buff' 
+  | 'intelligence_buff'
   | 'invisible' 
   | 'damage_reduction'
   | 'burning'
@@ -109,6 +110,37 @@ export interface MemorialEntry {
   monsterKills: [string, number][];
 }
 
+export interface Summon {
+  id: string;
+  name: string;
+  stats: {
+    hp: number;
+    maxHp: number;
+    dmg: number;
+  };
+}
+
+export interface GitHubRepo {
+  id: number;
+  name: string;
+  description: string | null;
+  html_url: string;
+  stargazers_count: number;
+  pushed_at: string;
+}
+
+export interface GitHubCommit {
+  sha: string;
+  html_url: string;
+  commit: {
+    message: string;
+    author: {
+      name: string;
+      date: string;
+    };
+  };
+}
+
 export class Character {
   name: string;
   charClass: CharacterClass;
@@ -136,6 +168,8 @@ export class Character {
   stamina: number = 3;
   lastStaminaRefresh: number = 0;
 
+  attributePoints: number = 0;
+
   constructor(name: string, charClass: CharacterClass) {
     this.name = name;
     this.charClass = charClass;
@@ -146,13 +180,6 @@ export class Character {
     this.equipment = { weapon: null, armor: null };
     this.currentHP = this.getCombatStats().hp;
     this.lastStaminaRefresh = Date.now();
-    this.grantInitialSkills();
-  }
-
-  grantInitialSkills() {
-    this.knownSkills = SKILLS_DB.filter(s =>
-      s.unlockLevel === 1 && s.classRequirement === this.charClass.name
-    );
   }
 
   getCombatStats(): Stats {
@@ -196,10 +223,7 @@ export class Character {
     this.baseStats.dex += gains.dex;
     this.baseStats.int += gains.int;
 
-    const newSkills = SKILLS_DB.filter(s =>
-      s.unlockLevel === this.level && s.classRequirement === this.charClass.name
-    );
-    this.knownSkills.push(...newSkills);
+    this.attributePoints += 3;
 
     this.currentHP = this.getCombatStats().hp;
   }
@@ -241,35 +265,4 @@ export interface Monster {
 export interface CombatMonster extends Monster {
   currentHP: number; 
   statusEffects: StatusEffect[];
-}
-
-export interface Summon {
-  id: string;
-  name: string;
-  stats: {
-    hp: number;
-    maxHp: number;
-    dmg: number;
-  };
-}
-
-export interface GitHubRepo {
-  id: number;
-  name: string;
-  description: string | null;
-  html_url: string;
-  stargazers_count: number;
-  pushed_at: string;
-}
-
-export interface GitHubCommit {
-  sha: string;
-  html_url: string;
-  commit: {
-    message: string;
-    author: {
-      name: string;
-      date: string;
-    };
-  };
 }
