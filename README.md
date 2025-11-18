@@ -37,32 +37,35 @@ O terminal também é um "motor" de jogo. Ao digitar `new game`, você inicia um
 - `help`: Lista todos os comandos disponíveis.
 - `projects`: Busca e exibe meus repositórios reais e fixados, diretamente da API do GitHub.
 - `open [numero]`: Abre o link de um projeto do GitHub em uma nova aba.
+- `pn` / `patchnotes`: Exibe os últimos commits (atualizações) do projeto em tempo real.
 - `skills`: Lista as tecnologias e habilidades que eu domino.
 - `contact`: Exibe minhas informações de contato profissional.
 - `clear`: Limpa o histórico do terminal.
 
 ### Comandos do RPG (Quest)
 
-- `new game` / `ng`: Inicia um novo jogo, permitindo criar um personagem (Guerreiro, Ladino ou Mago).
-- `abandon character`: Apaga seu personagem salvo no `localStorage` e o salva no `memorial`.
-- `memorial`: Exibe o "Hall da Fama" do último personagem que morreu ou foi abandonado.
-- `stats`: Exibe os atributos do seu personagem (HP, Ouro, Nível, EXP, Atributos, Equipamento e Efeitos de Status).
-- `train`: (Fora de combate) Gasta um ponto de treino para aumentar um atributo aleatório.
-- `abilities`: Lista todas as magias (`Magic`) e habilidades (`Skill`) que seu personagem aprendeu.
-- `i` / `inventory`: Mostra os itens no seu inventário.
-- `use [item/habilidade]`: Usa uma poção (fora de combate) ou uma Habilidade de classe (em combate).
-- `equip [item]`: Equipa uma arma ou armadura do seu inventário.
-- `shop`: Visita a loja, que possui 3 itens rotativos (atualiza a cada 1 hora).
-- `buy [numero]`: Compra um item da loja.
-- `f` / `find battle`: Procura por uma batalha.
+- `new game` / `ng`: Inicia um novo jogo. Permite selecionar entre 5 classes (Guerreiro, Ladino, Mago, Clérigo, Caçador e Druida).
+- `abandon character`: Apaga seu personagem salvo e o envia para o Memorial.
+- `memorial`: Exibe o "Hall da Fama" com os dados do último herói caído.
+- `stats`: Exibe status detalhados (HP com barra visual, Ouro, XP, Atributos e Invocações).
+- `train [str|dex|int]`: Gasta Stamina (limitada a 3x/dia) para treinar um atributo específico.
+- `evolve [classe]`: (Nível 10 e 20) Evolui sua classe para uma especialização ou classe de Elite.
+- `abilities`: Lista todas as magias e habilidades aprendidas.
+- `i` / `inventory`: Mostra os itens no inventário.
+- `use [item]`: Usa uma poção de cura ou buff (fora de combate).
+- `equip [item]`: Equipa uma arma ou armadura do inventário (afeta os atributos).
+- `shop`: Visita a loja, que possui estoque rotativo (atualiza a cada 1 hora).
+- `buy [numero]`: Compra um item da loja com Ouro.
+- `sell [item] [qtd]`: Vende itens do inventário por Ouro.
+- `f` / `find battle`: Procura por uma batalha (a dificuldade escala com o nível).
 
 ### Comandos de Combate
 
-- `a` / `attack`: Realiza um ataque básico baseado em `STR`.
-- `cast [magia]`: Lança uma magia (ex: `cast Bola de Fogo`).
-- `use [item/habilidade]`: Usa uma Habilidade de classe (ex: `use Grito de Guerra`) ou um item (ex: `use Poção de Cura`).
-- `run`: Tenta fugir da batalha (chance baseada em `DEX` e no nível do monstro).
-- `stats`: (Ação Livre) Mostra os status do jogador e do monstro.
+- `a` / `attack`: Realiza um ataque básico físico.
+- `cast [magia]`: Lança uma magia ofensiva ou de invocação (ex: `cast Bola de Fogo`, `cast Criar Golem`).
+- `use [habilidade/item]`: Usa uma habilidade física (ex: `use Grito de Guerra`) ou consome um item.
+- `run`: Tenta fugir da batalha (chance baseada em `DEX` e nível do monstro).
+- `stats`: (Ação Livre) Mostra a vida e status do jogador e do monstro sem gastar o turno.
 
 ## 🛠️ Arquitetura e Stack
 
@@ -70,10 +73,10 @@ Este projeto foi construído com foco em uma arquitetura moderna, limpa e escal�
 
 - **Framework:** **Next.js** (React)
 - **Estilização:** **TailwindCSS** (para a UI do terminal)
-- **Lógica de Estado (Cérebro do Jogo):** Hooks do React (`useReducer` e `useState`). Toda a lógica do jogo (combate, inventário, loja, etc.) é gerenciada em um único hook customizado: `useTerminalLogic`.
-- **Tipagem:** **TypeScript** (Interface para Itens, Monstros, Classes, Habilidades, etc.).
-- **Persistência:** `localStorage` do navegador. O estado do jogo e o memorial são salvos localmente, permitindo que o jogador continue de onde parou.
-- **API Externa:** **GitHub API** (para popular dinamicamente a seção `projects`).
+- **Lógica de Estado (Cérebro do Jogo):** Hooks do React (`useReducer` e `useState`). Toda a lógica do jogo (combate, inventário, loja, evolução, etc.) é gerenciada em um único hook customizado: `useTerminalLogic`.
+- **Tipagem:** **TypeScript** (Interfaces estritas para Itens, Monstros, Classes, Skills e Save Data).
+- **Persistência:** `localStorage` do navegador. O estado do jogo e o memorial são salvos localmente, permitindo continuar de onde parou.
+- **API Externa:** **GitHub API** (para popular dinamicamente as seções `projects` e `patchnotes`).
 - **Deploy:** **GitHub Pages**, configurado para exportação estática (`output: 'export'`) e deploy automatizado via **GitHub Actions**.
 
 ## 🚀 Como Rodar Localmente
@@ -81,7 +84,7 @@ Este projeto foi construído com foco em uma arquitetura moderna, limpa e escal�
 1.  **Clone o repositório:**
 
     ```bash
-    git clone https://github.com/guigasprog/QuestTerm.git
+    git clone [https://github.com/guigasprog/QuestTerm.git](https://github.com/guigasprog/QuestTerm.git)
     cd QuestTerm
     ```
 
