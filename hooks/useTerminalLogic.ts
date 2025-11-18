@@ -25,6 +25,7 @@ import {
 
 const LOCALSTORAGE_KEY = 'questTermSaveGame';
 const MEMORIAL_KEY = 'questTermMemorial';
+const SHOP_KEY = 'questTermShop';
 
 interface GameState {
   character: Character | null;
@@ -828,19 +829,36 @@ export function useTerminalLogic() {
 
   const checkAndRefreshShop = (): Item[] => {
     const now = Date.now();
-    const oneHour = 1000 * 60 * 60;
-    const timeElapsed = now - gameState.shopLastRefresh;
+    const oneHour = 1000 * 60 * 60; 
 
-    if (timeElapsed > oneHour || gameState.shopStock.length === 0) {
-      const newStock = generateShopStock();
-      dispatch({ 
+    const storedShopString = localStorage.getItem(SHOP_KEY);
+    
+    if (storedShopString) {
+        const { stock, timestamp } = JSON.parse(storedShopString);
+        const timeElapsed = now - timestamp;
+        
+        if (timeElapsed < oneHour) {
+            if (gameState.shopStock.length === 0 || gameState.shopLastRefresh !== timestamp) {
+                 dispatch({ 
+                    type: 'SET_SHOP_STOCK', 
+                    payload: { stock, timestamp } 
+                });
+            }
+            return stock;
+        }
+    }
+
+    const newStock = generateShopStock();
+    
+    const shopData = { stock: newStock, timestamp: now };
+    localStorage.setItem(SHOP_KEY, JSON.stringify(shopData));
+    
+    dispatch({ 
         type: 'SET_SHOP_STOCK', 
         payload: { stock: newStock, timestamp: now } 
-      });
-      return newStock;
-    }
+    });
     
-    return gameState.shopStock;
+    return newStock;
   };
 
   const handleFindBattle = (): string[] => {
