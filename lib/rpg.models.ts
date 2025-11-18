@@ -1,4 +1,3 @@
-
 export interface Stats {
   hp: number;
   str: number;
@@ -6,7 +5,7 @@ export interface Stats {
   int: number;
 }
 
-export type TrainableStat = Exclude<keyof Stats, 'hp'>;
+export type TrainableStat = Exclude<keyof Stats, "hp">;
 
 export interface CharacterClass {
   name: string;
@@ -15,8 +14,8 @@ export interface CharacterClass {
   levelUpGains: Stats;
 }
 
-export type ItemType = 'Potion' | 'Equipment' | 'Currency' | 'Item';
-export type EquipmentSlot = 'weapon' | 'armor';
+export type ItemType = "Potion" | "Equipment" | "Currency" | "Item";
+export type EquipmentSlot = "weapon" | "armor";
 
 export interface Item {
   id: string;
@@ -28,35 +27,36 @@ export interface Item {
 }
 
 export interface Potion extends Item {
-  type: 'Potion';
-  effect: 'heal' | 'poison' | 'buff';
+  type: "Potion";
+  effect: "heal" | "poison" | "buff";
   value: number;
   buffId?: StatusEffectId;
   duration?: number;
 }
 
 export interface Equipment extends Item {
-  type: 'Equipment';
+  type: "Equipment";
   slot: EquipmentSlot;
   stats: Partial<Stats>;
   tier: number;
 }
 
 export interface Currency extends Item {
-  type: 'Currency';
+  type: "Currency";
   value: number;
 }
 
-export type SkillType = 'Magic' | 'Skill';
-export type SkillTarget = 'Self' | 'Enemy';
-export type StatusEffectId = 'poisoned' 
-  | 'damage_buff' 
-  | 'dexterity_buff' 
-  | 'intelligence_buff'
-  | 'invisible' 
-  | 'damage_reduction'
-  | 'burning'
-  | 'paralyzed';
+export type SkillType = "Magic" | "Skill";
+export type SkillTarget = "Self" | "Enemy";
+export type StatusEffectId =
+  | "poisoned"
+  | "damage_buff"
+  | "dexterity_buff"
+  | "intelligence_buff"
+  | "invisible"
+  | "damage_reduction"
+  | "burning"
+  | "paralyzed";
 
 export interface StatusEffect {
   id: StatusEffectId;
@@ -65,23 +65,26 @@ export interface StatusEffect {
 }
 
 export interface SkillEffect_ApplyStatus {
-  type: 'apply_status';
+  type: "apply_status";
   effectId: StatusEffectId;
   duration: number;
   potency?: number;
 }
 
 export interface SkillEffect_DirectDamage {
-  type: 'direct_damage';
+  type: "direct_damage";
   value: number;
 }
 
 export interface SkillEffect_Summon {
-  type: 'summon';
+  type: "summon";
   summonId: string;
 }
 
-export type SkillEffect = SkillEffect_ApplyStatus | SkillEffect_DirectDamage | SkillEffect_Summon;
+export type SkillEffect =
+  | SkillEffect_ApplyStatus
+  | SkillEffect_DirectDamage
+  | SkillEffect_Summon;
 
 export interface Skill {
   id: string;
@@ -144,14 +147,14 @@ export interface GitHubCommit {
 export class Character {
   name: string;
   charClass: CharacterClass;
-  
+
   level: number;
   exp: number;
   expToNextLevel: number;
 
-  baseStats: Stats; 
-  currentHP: number; 
-  
+  baseStats: Stats;
+  currentHP: number;
+
   inventory: Item[] = [];
   gold: number = 0;
   equipment: {
@@ -190,7 +193,8 @@ export class Character {
     if (weapon && weapon.stats) {
       for (const key in weapon.stats) {
         const stat = key as keyof Stats;
-        combatStats[stat] = (combatStats[stat] || 0) + (weapon.stats[stat] || 0);
+        combatStats[stat] =
+          (combatStats[stat] || 0) + (weapon.stats[stat] || 0);
       }
     }
     if (armor && armor.stats) {
@@ -199,6 +203,19 @@ export class Character {
         combatStats[stat] = (combatStats[stat] || 0) + (armor.stats[stat] || 0);
       }
     }
+
+    this.statusEffects.forEach((effect) => {
+      if (effect.id === "damage_buff") {
+        combatStats.str += effect.potency || 0;
+      }
+      if (effect.id === "dexterity_buff") {
+        combatStats.dex += effect.potency || 0;
+      }
+      if (effect.id === "intelligence_buff") {
+        combatStats.int += effect.potency || 0;
+      }
+    });
+
     return combatStats;
   }
 
@@ -215,9 +232,9 @@ export class Character {
     this.level++;
     this.exp -= this.expToNextLevel;
     this.expToNextLevel = Math.floor(this.expToNextLevel * 1.5);
-    
+
     const gains = this.charClass.levelUpGains;
-    
+
     this.baseStats.hp += gains.hp;
     this.baseStats.str += gains.str;
     this.baseStats.dex += gains.dex;
@@ -238,14 +255,14 @@ export class Character {
       }
     });
 
-    this.statusEffects = this.statusEffects.filter(effect => {
+    this.statusEffects = this.statusEffects.filter((effect) => {
       effect.duration--;
       return effect.duration > 0;
     });
   }
-  
+
   addStatusEffect(effect: StatusEffect) {
-    this.statusEffects = this.statusEffects.filter(e => e.id !== effect.id);
+    this.statusEffects = this.statusEffects.filter((e) => e.id !== effect.id);
     this.statusEffects.push(effect);
   }
 }
@@ -255,14 +272,14 @@ export interface Monster {
   name: string;
   stats: Stats;
   expReward: number;
-  minLevel: number; 
+  minLevel: number;
   lootTable: {
-    item: Item; 
-    dropChance: number; 
+    item: Item;
+    dropChance: number;
   }[];
 }
 
 export interface CombatMonster extends Monster {
-  currentHP: number; 
+  currentHP: number;
   statusEffects: StatusEffect[];
 }
