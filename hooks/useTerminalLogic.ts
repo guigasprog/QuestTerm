@@ -54,8 +54,8 @@ type GameAction =
     }
   | { type: "FIND_BATTLE"; payload: CombatMonster }
   | {
-      type: "PLAYER_ATTACK";
-      payload: { playerDamage: number; monsterDamage: number };
+      type: "UPDATE_COMBAT_TURN";
+      payload: { character: Character; monster: CombatMonster; log: string[] };
     }
   | {
       type: "END_COMBAT";
@@ -170,7 +170,13 @@ function gameReducer(state: GameState, action: GameAction): GameState {
   }
 
   switch (action.type) {
-    // ... (Existing Cases) ...
+    case "UPDATE_COMBAT_TURN": {
+      return {
+        ...state,
+        character: action.payload.character,
+        currentMonster: action.payload.monster,
+      };
+    }
     case "TRAIN": {
       if (!state.character) return state;
       const newChar = cloneCharacter(state.character);
@@ -215,22 +221,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         currentMonster: action.payload,
         combatLog: [],
         actionsTaken: 0,
-      }; // Reset actions
-
-    case "PLAYER_ATTACK": {
-      if (!state.currentMonster || !state.character) return state;
-      const { playerDamage, monsterDamage } = action.payload;
-
-      const newMonster = { ...state.currentMonster };
-      newMonster.currentHP -= playerDamage;
-
-      const newChar = cloneCharacter(state.character);
-      newChar.currentHP -= monsterDamage; // Usually 0 unless counter-attack logic exists outside
-
-      return { ...state, character: newChar, currentMonster: newMonster };
-    }
-
-    // ... (Other Reducer Cases remain the same, just add new ones) ...
+      };
     case "SUMMON_CREATURE":
       if (state.activeSummons.length >= 3) return state;
       return {
@@ -952,68 +943,84 @@ export function useTerminalLogic() {
     return [`Você equipou ${item.name}.`];
   };
 
-  // --- PROCESS COMBAT TURN (UPDATED) ---
+  const saveGameNow = (stateToSave: GameState) => {
+    try {
+      const { character } = stateToSave;
+      if (character) {
+        const dataToSave = {
+          ...stateToSave,
+          character: {
+            ...character,
+            skillCooldowns: Array.from(character.skillCooldowns.entries()),
+            monsterKills: Array.from(character.monsterKills.entries()),
+          },
+        };
+        localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(dataToSave));
+      }
+    } catch (err) {
+      console.error("Falha ao salvar jogo manualmente", err);
+    }
+  };
+
   const processCombatTurn = (
     action: "attack" | "run" | { skill: Skill } | { item: Item }
   ): string[] => {
     const { character, currentMonster } = gameState;
     if (!character || !currentMonster) return ["Erro: Combate inválido."];
 
-    const playerStats = character.getCombatStats();
+    const charClone = cloneCharacter(character);
+    const monsterClone = {
+      ...currentMonster,
+      statusEffects: [...currentMonster.statusEffects],
+    };
+    const playerStats = charClone.getCombatStats();
     const log: string[] = [];
 
-    // --- CÁLCULO DE BUFFS DE ATRIBUTOS ---
-    // DEX: Crítico (0.2% por ponto, max 75%) e Ações Extras (1 a cada 30)
     const critChance = Math.min(0.75, playerStats.dex * 0.002);
     const extraActions = Math.floor(playerStats.dex / 30);
     const totalActions = 1 + extraActions;
 
-    // INT: Dano Mágico (+5% a cada 5 pts) e Duração (+1 turno a cada 10 pts)
     const magicDmgMult = 1 + Math.floor(playerStats.int / 5) * 0.05;
     const magicDurationBonus = Math.floor(playerStats.int / 10);
 
-    // --- LOOP DE AÇÕES (Baseado em DEX) ---
-    // Se for Ataque ou Skill, pode repetir. Item e Run não repetem.
     const isRepeatableAction =
       action === "attack" || (typeof action === "object" && "skill" in action);
     const loops = isRepeatableAction ? totalActions : 1;
 
     for (let i = 0; i < loops; i++) {
-      if (currentMonster.currentHP <= 0) break; // Para se o monstro morrer
+      if (monsterClone.currentHP <= 0) break;
 
-      if (i > 0)
-        log.push(`> [VELOCIDADE] Sua DEX insana permite uma ação extra!`);
+      if (i > 0) log.push(`> [VELOCIDADE] Sua DEX permite uma ação extra!`);
 
-      // --- 1. AÇÃO: ATAQUE BÁSICO ---
+      // 1. ATAQUE BÁSICO
       if (action === "attack") {
-        const monsterStats = currentMonster.stats;
+        const monsterStats = monsterClone.stats;
         let playerDamage = Math.max(
           1,
           Math.floor(playerStats.str - monsterStats.dex / 2)
         );
 
-        // Rolagem de Crítico
-        const isCrit = Math.random() < critChance;
-        if (isCrit) {
-          playerDamage = Math.floor(playerDamage * 2); // Crítico = 2x Dano
+        if (Math.random() < critChance) {
+          playerDamage = Math.floor(playerDamage * 2);
           log.push(`> CRÍTICO! (Chance: ${(critChance * 100).toFixed(1)}%)`);
         }
 
-        currentMonster.currentHP -= playerDamage;
+        monsterClone.currentHP -= playerDamage;
         log.push(
-          `> Você ataca o ${currentMonster.name} causando ${playerDamage} de dano.`
+          `> Você ataca o ${monsterClone.name} causando ${playerDamage} de dano.`
         );
       }
 
-      // --- 2. AÇÃO: FUGIR (Não repete) ---
+      // 2. FUGIR (Não repete)
       else if (action === "run") {
         log.push("> Você tenta fugir...");
-        const playerLevel = character.level;
-        const monsterLevel = currentMonster.minLevel;
+        const playerLevel = charClone.level;
+        const monsterLevel = monsterClone.minLevel;
         const levelDifference = monsterLevel - playerLevel;
         const baseChance = 0.8;
         const penaltyPerLevel = 0.1;
         const dexBonus = playerStats.dex * 0.015;
+
         const escapeChance = Math.max(
           0.1,
           Math.min(
@@ -1026,45 +1033,53 @@ export function useTerminalLogic() {
           dispatch({ type: "RUN_AWAY" });
           log.push("  ...e consegue escapar!");
           return log; // Sai da função imediatamente
-        } else {
-          log.push("  ...mas o monstro bloqueia seu caminho!");
         }
+        log.push("  ...mas o monstro bloqueia seu caminho!");
       }
 
-      // --- 3. AÇÃO: ITEM (Não repete, gasta 1 e sai) ---
-      else if ("item" in action) {
+      // 3. USAR ITEM (Não repete)
+      else if (typeof action === "object" && "item" in action) {
         log.push(`> Você usa '${action.item.name}'!`);
         if (action.item.type === "Potion") {
           const potion = action.item as Potion;
           if (potion.effect === "heal") {
-            dispatch({ type: "PLAYER_HEAL", payload: potion.value });
+            const maxHP = charClone.getCombatStats().hp;
+            charClone.currentHP = Math.min(
+              maxHP,
+              charClone.currentHP + potion.value
+            );
             log.push(`  Você recupera ${potion.value} HP.`);
           }
         }
-        dispatch({ type: "REMOVE_ITEM_BY_ID", payload: action.item.id });
+        // Remove do inventário
+        const index = charClone.inventory.findIndex(
+          (it) => it.id === action.item.id
+        );
+        if (index > -1) charClone.inventory.splice(index, 1);
       }
 
-      // --- 4. AÇÃO: HABILIDADE / MAGIA ---
-      else if ("skill" in action) {
+      // 4. USAR HABILIDADE/MAGIA
+      else if (typeof action === "object" && "skill" in action) {
         const skill = action.skill;
-        // Só cobra cooldown na primeira ação
+
+        // Cooldown só aplica na primeira execução
         if (i === 0) {
           log.push(`> Você usa '${skill.name}'!`);
-          character.skillCooldowns.set(skill.id, skill.cooldown);
+          charClone.skillCooldowns.set(skill.id, skill.cooldown);
         } else {
           log.push(`> Você usa '${skill.name}' NOVAMENTE!`);
         }
 
-        const target = skill.target === "Self" ? character : currentMonster;
+        const target = skill.target === "Self" ? charClone : monsterClone;
 
         skill.effects.forEach((effect) => {
           switch (effect.type) {
             case "summon": {
-              // Summons não são afetados por repetição (para não spammar 3 bichos de uma vez)
               if (i === 0) {
-                if (gameState.activeSummons.length >= 3)
-                  log.push("Muitas invocações ativas!");
-                else {
+                // Só invoca uma vez
+                if (gameState.activeSummons.length >= 3) {
+                  log.push("Limite de invocações atingido!");
+                } else {
                   const summonTemplate = SUMMONS_DB[effect.summonId];
                   const newSummon = {
                     ...summonTemplate,
@@ -1077,15 +1092,11 @@ export function useTerminalLogic() {
               break;
             }
             case "apply_status": {
-              // Lógica de INT para Duração e DEX para Crítico (se aplicável)
-              // Para status, vamos focar na Duração extra de INT
-
               let finalDuration = effect.duration;
-
-              // Bônus de INT (Magia)
+              // Bônus de INT para duração (apenas Magias)
               if (skill.type === "Magic") {
                 finalDuration += magicDurationBonus;
-                if (magicDurationBonus > 0)
+                if (magicDurationBonus > 0 && i === 0)
                   log.push(`  (INT Bonus: +${magicDurationBonus} turnos)`);
               }
 
@@ -1097,46 +1108,47 @@ export function useTerminalLogic() {
 
               if ("charClass" in target) target.addStatusEffect(newEffect);
               else {
+                // Lógica manual para monstro (pois não é classe Character)
                 target.statusEffects = target.statusEffects.filter(
                   (e) => e.id !== newEffect.id
                 );
                 target.statusEffects.push(newEffect);
               }
               log.push(
-                `  O ${target.name} é afetado por '${effect.effectId}'!`
+                `  O ${
+                  target === charClone ? "Você" : target.name
+                } é afetado por '${effect.effectId}'!`
               );
               break;
             }
             case "direct_damage": {
               let dmg = effect.value;
 
-              // 1. Aplica Multiplicador de INT (Se for Magia)
+              // Scaling de INT (Magia)
               if (skill.type === "Magic") {
                 const oldDmg = dmg;
                 dmg = Math.floor(dmg * magicDmgMult);
-                if (dmg > oldDmg)
+                if (dmg > oldDmg && i === 0)
                   log.push(`  (Amplificado por INT: ${oldDmg} -> ${dmg})`);
               }
 
-              // 2. Aplica Crítico de DEX (Se for Skill Física ou Ataque)
-              // (Em muitos RPGs magia crita, vamos permitir para ser divertido)
-              const isCrit = Math.random() < critChance;
-              if (isCrit) {
+              // Scaling de DEX (Crítico em tudo)
+              if (Math.random() < critChance) {
                 dmg = Math.floor(dmg * 2);
-                log.push(`  CRÍTICO MÁGICO!`);
+                log.push(`  CRÍTICO!`);
               }
 
-              currentMonster.currentHP -= dmg;
+              monsterClone.currentHP -= dmg;
               log.push(`  Causando ${dmg} de dano!`);
               break;
             }
           }
         });
       }
-    } // Fim do Loop de Ações
+    } // Fim do Loop de Ações do Jogador
 
-    // --- TURNO DOS SUMMONS ---
-    if (gameState.activeSummons.length > 0 && currentMonster.currentHP > 0) {
+    // --- TURNO DAS INVOCAÇÕES ---
+    if (gameState.activeSummons.length > 0 && monsterClone.currentHP > 0) {
       let totalSummonDamage = 0;
       gameState.activeSummons.forEach((summon) => {
         totalSummonDamage += summon.stats.dmg;
@@ -1144,130 +1156,161 @@ export function useTerminalLogic() {
           `> ${summon.name} ataca causando ${summon.stats.dmg} de dano.`
         );
       });
-      currentMonster.currentHP -= totalSummonDamage;
+      monsterClone.currentHP -= totalSummonDamage;
       dispatch({ type: "SUMMON_ATTACK_MONSTER", payload: totalSummonDamage });
     }
 
     // --- PROCESSA STATUS (DoT) ---
-    currentMonster.statusEffects.forEach((effect) => {
+    monsterClone.statusEffects.forEach((effect) => {
       if (effect.id === "poisoned" && effect.potency) {
-        currentMonster.currentHP -= effect.potency;
+        monsterClone.currentHP -= effect.potency;
         log.push(
-          `> O ${currentMonster.name} sofre ${effect.potency} de dano de veneno.`
+          `> O ${monsterClone.name} sofre ${effect.potency} de dano de veneno.`
         );
       }
       if (effect.id === "burning" && effect.potency) {
-        // Burning também pode escalar com INT se quisermos, mas vamos manter simples
-        currentMonster.currentHP -= effect.potency;
+        monsterClone.currentHP -= effect.potency;
         log.push(
-          `> O ${currentMonster.name} sofre ${effect.potency} de dano de fogo.`
+          `> O ${monsterClone.name} sofre ${effect.potency} de dano de fogo.`
         );
       }
     });
 
     // --- CHECA MORTE DO MONSTRO ---
-    if (currentMonster.currentHP <= 0) {
-      log.push(`> O ${currentMonster.name} foi derrotado!`);
+    if (monsterClone.currentHP <= 0) {
+      log.push(`> O ${monsterClone.name} foi derrotado!`);
+
       const loot: Item[] = [];
       let goldFound = 0;
-      currentMonster.lootTable.forEach((drop) => {
+
+      monsterClone.lootTable.forEach((drop) => {
         if (Math.random() < drop.dropChance) {
           const baseItem = drop.item;
           if (baseItem.type === "Currency") {
-            goldFound += Math.max(
+            const amount = Math.max(
               1,
-              Math.floor(currentMonster.minLevel * 2 * (1 + Math.random()))
+              Math.floor(monsterClone.minLevel * 2 * (1 + Math.random()))
             );
-            log.push(`  + Você encontrou Ouro!`);
+            goldFound += amount;
+            log.push(`  + Você encontrou ${amount}x Ouro!`);
           } else {
             loot.push(baseItem);
             log.push(`  + Você encontrou ${baseItem.name}!`);
           }
         }
       });
+
+      // IMPORTANTE: Aqui despachamos END_COMBAT, que também salva o jogo
+      const exp = monsterClone.expReward;
       dispatch({
         type: "END_COMBAT",
         payload: {
-          exp: currentMonster.expReward,
+          exp,
           loot,
           log,
           gold: goldFound,
-          monsterName: currentMonster.name,
+          monsterName: monsterClone.name,
         },
       });
       return log;
     }
 
     // --- TURNO DO MONSTRO ---
-    const isParalyzed = currentMonster.statusEffects.find(
+    const isParalyzed = monsterClone.statusEffects.find(
       (e) => e.id === "paralyzed"
     );
 
     if (isParalyzed) {
-      log.push(
-        `> O ${currentMonster.name} está paralisado e não pode se mover!`
-      );
+      log.push(`> O ${monsterClone.name} está paralisado e não pode se mover!`);
     } else {
+      // Escolhe Alvo (0 = Player, 1+ = Summons)
       const targetsCount = 1 + gameState.activeSummons.length;
       const targetIndex = Math.floor(Math.random() * targetsCount);
-      const monsterStats = currentMonster.stats;
+      const monsterStats = monsterClone.stats;
 
       if (targetIndex === 0) {
         // Ataca Jogador
-        const isInvisible = character.statusEffects.find(
+        const isInvisible = charClone.statusEffects.find(
           (e) => e.id === "invisible"
         );
         if (isInvisible) {
           log.push(
-            `> O ${currentMonster.name} ataca, mas você está invisível e ele erra!`
+            `> O ${monsterClone.name} ataca, mas você está invisível e ele erra!`
           );
         } else {
           let monsterDamage = Math.max(
             1,
             Math.floor(monsterStats.str - playerStats.dex / 2)
           );
-          const reduceDmg = character.statusEffects.find(
+
+          const reduceDmg = charClone.statusEffects.find(
             (e) => e.id === "damage_reduction"
           );
           if (reduceDmg && reduceDmg.potency) {
             monsterDamage = Math.max(0, monsterDamage - reduceDmg.potency);
-            log.push(`  Sua 'Casca Grossa' reduz o dano!`);
+            log.push(`  Sua defesa reduz o dano!`);
           }
-          character.currentHP -= monsterDamage;
+
+          charClone.currentHP -= monsterDamage;
           log.push(
-            `> O ${currentMonster.name} ataca VOCÊ causando ${monsterDamage} de dano.`
+            `> O ${monsterClone.name} ataca VOCÊ causando ${monsterDamage} de dano.`
           );
         }
       } else {
         // Ataca Summon
         const summonIndex = targetIndex - 1;
         const targetSummon = gameState.activeSummons[summonIndex];
-        const damageToSummon = Math.max(1, monsterStats.str);
+        const damageToSummon = Math.max(1, monsterStats.str); // Dano puro nos summons
+
         log.push(
-          `> O ${currentMonster.name} ataca ${targetSummon.name} causando ${damageToSummon} de dano.`
+          `> O ${monsterClone.name} ataca ${targetSummon.name} causando ${damageToSummon} de dano.`
         );
+
+        // Atualiza o estado dos summons via Action separada (pois activeSummons não está no monsterClone)
         dispatch({
           type: "MONSTER_ATTACK_SUMMON",
           payload: { index: summonIndex, damage: damageToSummon },
         });
+
         if (targetSummon.stats.hp - damageToSummon <= 0) {
           log.push(`  ${targetSummon.name} foi destruído!`);
         }
       }
     }
 
-    character.tickTurn();
-    currentMonster.statusEffects = currentMonster.statusEffects.filter((e) => {
+    // --- FINALIZAÇÃO DO TURNO ---
+    charClone.tickTurn(); // Reduz cooldowns e status do player
+
+    // Reduz status do monstro manualmente
+    monsterClone.statusEffects = monsterClone.statusEffects.filter((e) => {
       e.duration--;
       return e.duration > 0;
     });
 
-    if (character.currentHP <= 0) {
+    // Check de Game Over
+    if (charClone.currentHP <= 0) {
       log.push(`> *** VOCÊ MORREU ***`);
-      saveToMemorial(character);
+      saveToMemorial(charClone);
       dispatch({ type: "GAME_OVER" });
       return log;
     }
+
+    // --- CRÍTICO: SALVA O ESTADO DO COMBATE ---
+    // Despacha a atualização para o React State
+    dispatch({
+      type: "UPDATE_COMBAT_TURN",
+      payload: { character: charClone, monster: monsterClone, log },
+    });
+
+    // Salva no LocalStorage IMEDIATAMENTE
+    // (Isso garante que se der F5 agora, a vida estará atualizada)
+    saveGameNow({
+      ...gameState,
+      character: charClone,
+      currentMonster: monsterClone,
+      activeSummons: gameState.activeSummons, // (Nota: summons atualizados via dispatch acima podem ter um delay de 1 frame no save manual aqui, mas é aceitável)
+    });
+
     return log;
   };
 
