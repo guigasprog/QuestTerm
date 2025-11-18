@@ -920,8 +920,8 @@ export function useTerminalLogic() {
   ];
 
   const listClasses = (): string[] => {
-    return availableClasses.map(c => 
-      `  - ${c.name}: ${c.description} (HP:${c.baseStats.hp} STR:${c.baseStats.str} DEX:${c.baseStats.dex} INT:${c.baseStats.int})`
+    return availableClasses.map((c, index) => 
+      `  ${index + 1}. ${c.name}: ${c.description} (HP:${c.baseStats.hp} STR:${c.baseStats.str} DEX:${c.baseStats.dex} INT:${c.baseStats.int})`
     );
   };
   
@@ -1045,13 +1045,30 @@ export function useTerminalLogic() {
     }
     
     if (gameState.gameState === 'AWAITING_CLASS') {
-      dispatch({ type: 'SET_CLASS', payload: lowerCommand });
-      const chosenClass = availableClasses.find(c => c.name.toLowerCase() === lowerCommand);
-      if (chosenClass) {
-        response = [`Personagem criado! Você é um ${chosenClass.name}.`, "Digite 'stats' para ver seus atributos ou 'f' para encontrar uma batalha."];
+      let chosenClass;
+
+      const index = parseInt(lowerCommand, 10);
+      if (!isNaN(index) && index > 0 && index <= availableClasses.length) {
+        chosenClass = availableClasses[index - 1];
       } else {
-        response = ["Classe não encontrada. Tente novamente:", ...listClasses()];
+        chosenClass = availableClasses.find(c => c.name.toLowerCase() === lowerCommand);
       }
+
+      if (chosenClass) {
+        dispatch({ type: 'SET_CLASS', payload: chosenClass.name.toLowerCase() });
+        
+        response = [
+          `Personagem criado! Você é um ${chosenClass.name}.`, 
+          "Digite 'stats' para ver seus atributos ou 'f' para encontrar uma batalha."
+        ];
+      } else {
+        response = [
+          `Classe '${command}' não encontrada.`, 
+          "Escolha pelo nome ou número:", 
+          ...listClasses()
+        ];
+      }
+      
       setHistory(prev => [...prev, ...response]);
       return;
     }
