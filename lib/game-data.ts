@@ -908,7 +908,7 @@ export const availableClasses: CharacterClass[] = [
   CLASSES_DB["Clérigo"],
   CLASSES_DB["Druida"],
   CLASSES_DB["Caçador"],
-  CLASSES_DB["Paladino"], // <-- ADICIONADO: Agora o Paladino é jogável!
+  CLASSES_DB["Paladino"],
 ];
 
 // --- 3. BANCO DE DADOS DE HABILIDADES (Recheado) ---

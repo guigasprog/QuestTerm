@@ -146,7 +146,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         };
       case "SET_CLASS":
         const chosenClass = availableClasses.find(
-          (c) => c.name.toLowerCase() === action.payload
+          (c) => c && c.name.toLowerCase() === action.payload
         );
         if (!chosenClass) return state;
 
@@ -699,12 +699,16 @@ export function useTerminalLogic() {
   };
 
   const listClasses = (): string[] => {
-    return availableClasses.map(
-      (c, index) =>
-        `  ${index + 1}. ${c.name}: ${c.description} (HP:${
-          c.baseStats.hp
-        } STR:${c.baseStats.str} DEX:${c.baseStats.dex} INT:${c.baseStats.int})`
-    );
+    return availableClasses
+      .filter(Boolean)
+      .map(
+        (c, index) =>
+          `  ${index + 1}. ${c.name}: ${c.description} (HP:${
+            c.baseStats.hp
+          } STR:${c.baseStats.str} DEX:${c.baseStats.dex} INT:${
+            c.baseStats.int
+          })`
+      );
   };
 
   const showPortfolio = (): string[] => {
