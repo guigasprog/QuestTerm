@@ -23,7 +23,7 @@ export default function Home() {
   return (
     <main
       ref={scrollContainerRef}
-      className="bg-black text-green-400 font-mono h-screen w-full p-4 overflow-y-auto"
+      className="bg-black text-green-400 font-mono h-screen w-screen p-4 overflow-y-auto"
       onClick={focusInput}
     >
       {history.map((line, index) => (

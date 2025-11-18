@@ -11,10 +11,14 @@ import {
   StatusEffect,
   StatusEffectId,
   MemorialEntry,
+  Summon,
 } from '@/lib/rpg.models';
 import { 
+  CLASSES_DB,
+  CLASS_EVOLUTIONS,
   ITEMS_DB,
   MONSTERS_DB, 
+  SUMMONS_DB, 
   availableClasses
 } from '@/lib/game-data';
 
@@ -29,6 +33,7 @@ interface GameState {
   combatLog: string[];
   shopStock: Item[];
   shopLastRefresh: number;
+  activeSummons: Summon[];
 }
 
 type GameAction =
@@ -51,7 +56,12 @@ type GameAction =
   | { type: 'LOAD_CHARACTER'; payload: Character }
   | { type: 'ABANDON_CHARACTER' }
   | { type: 'USE_STAMINA' }
-  | { type: 'RESTORE_GAME_STATE'; payload: Partial<GameState> };
+  | { type: 'SELL_ITEM'; payload: { itemId: string; price: number; qty: number } }
+  | { type: 'RESTORE_GAME_STATE'; payload: Partial<GameState> }
+  | { type: 'SUMMON_CREATURE'; payload: Summon }
+  | { type: 'EVOLVE_CLASS'; payload: string }
+  | { type: 'SUMMON_ATTACK_MONSTER'; payload: number } 
+  | { type: 'MONSTER_ATTACK_SUMMON'; payload: { index: number, damage: number } };
 
 const initialGameState: GameState = {
   character: null,
@@ -61,6 +71,7 @@ const initialGameState: GameState = {
   combatLog: [],
   shopStock: [], 
   shopLastRefresh: 0,
+  activeSummons: []
 };
 
 
@@ -104,6 +115,28 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         return { ...state, character: action.payload };
       case 'RESTORE_GAME_STATE':
         return { ...state, ...action.payload };
+      case 'SELL_ITEM': {
+      if (!state.character) return state;
+      const newCharSell = cloneCharacter(state.character);
+      const { itemId, price, qty } = action.payload;
+      
+      let itemsRemoved = 0;
+
+      for (let i = 0; i < qty; i++) {
+        const index = newCharSell.inventory.findIndex(item => item.id === itemId);
+        
+        if (index > -1) {
+          newCharSell.inventory.splice(index, 1);
+          itemsRemoved++;
+        } else {
+          break; 
+        }
+      }
+
+      newCharSell.gold += (price * itemsRemoved);
+      
+      return { ...state, character: newCharSell };
+    }
       default:
         return state;
     }
@@ -142,6 +175,44 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, character: newChar, currentMonster: newMonster };
     }
 
+    case 'SUMMON_CREATURE':
+      if (state.activeSummons.length >= 3) return state; // Limite de 3
+      return { ...state, activeSummons: [...state.activeSummons, action.payload] };
+    
+    case 'EVOLVE_CLASS': {
+      if (!state.character) return state;
+      const newCharEvolved = cloneCharacter(state.character);
+
+      // Pega a nova classe completa do DB
+      const newClassDefinition = CLASSES_DB[action.payload]; 
+
+      if (newClassDefinition) {
+         newCharEvolved.charClass = newClassDefinition; // <-- ATUALIZA TUDO (LevelUpGains inclusos)
+      } else {
+         // Fallback de segurança apenas mudando o nome (não deve acontecer)
+         newCharEvolved.charClass.name = action.payload; 
+      }
+
+      return { ...state, character: newCharEvolved };
+    }
+    case 'SUMMON_ATTACK_MONSTER':
+      if (!state.currentMonster) return state;
+      const monsterHurt = { ...state.currentMonster };
+      monsterHurt.currentHP -= action.payload;
+      return { ...state, currentMonster: monsterHurt };
+
+    case 'MONSTER_ATTACK_SUMMON':
+      const summons = [...state.activeSummons];
+      const targetSummon = { ...summons[action.payload.index] };
+      targetSummon.stats.hp -= action.payload.damage;
+      
+      if (targetSummon.stats.hp <= 0) {
+        summons.splice(action.payload.index, 1); // Invocação morreu
+      } else {
+        summons[action.payload.index] = targetSummon;
+      }
+      return { ...state, activeSummons: summons };
+
     case 'END_COMBAT': { 
       if (!state.character) return state;
       const { exp, loot, log, gold, monsterName } = action.payload;
@@ -152,13 +223,13 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       const currentKills = newChar.monsterKills.get(monsterName) || 0;
       newChar.monsterKills.set(monsterName, currentKills + 1);
       
-      const leveledUp = newChar.addExp(exp); // Este método muta 'newChar'
+      const leveledUp = newChar.addExp(exp);
       newChar.inventory.push(...loot);
       
       if (leveledUp) {
         log.push(`*** VOCÊ SUBIU DE NÍVEL! Agora você é nível ${newChar.level}! ***`);
       }
-      return { ...state, gameState: 'IDLE', currentMonster: null, combatLog: log, character: newChar };
+      return { ...state, gameState: 'IDLE', currentMonster: null, combatLog: log, character: newChar, activeSummons: [] };
     }
       
     case 'RUN_AWAY':
@@ -528,6 +599,17 @@ export function useTerminalLogic() {
 
       skill.effects.forEach(effect => {
         switch (effect.type) {
+          case 'summon': {
+            if (gameState.activeSummons.length >= 3) {
+              log.push("Você já tem 3 invocações ativas!");
+            } else {
+              const summonTemplate = SUMMONS_DB[effect.summonId];
+              const newSummon = { ...summonTemplate, id: `${summonTemplate.id}_${Date.now()}` };
+              dispatch({ type: 'SUMMON_CREATURE', payload: newSummon });
+              log.push(`Você invocou ${newSummon.name}!`);
+            }
+            break;
+          }
           case 'apply_status': {
             const intPotencyBonus = Math.floor(playerStats.int / 4);
             const dexDurationBonus = (Math.random() < (playerStats.dex / 25) ? 1 : 0);
@@ -562,6 +644,16 @@ export function useTerminalLogic() {
           }
         }
       });
+    }
+
+    if (gameState.activeSummons.length > 0) {
+      let totalSummonDamage = 0;
+      gameState.activeSummons.forEach(summon => {
+        totalSummonDamage += summon.stats.dmg;
+        log.push(`> ${summon.name} ataca causando ${summon.stats.dmg} de dano.`);
+      });
+      currentMonster.currentHP -= totalSummonDamage;
+      dispatch({ type: 'SUMMON_ATTACK_MONSTER', payload: totalSummonDamage });
     }
 
     currentMonster.statusEffects.forEach(effect => {
@@ -628,6 +720,32 @@ export function useTerminalLogic() {
       return log;
     }
     
+    const targetsCount = 1 + gameState.activeSummons.length;
+    const targetIndex = Math.floor(Math.random() * targetsCount);
+
+    const monsterStats = currentMonster.stats;
+    // Dano base do monstro
+    let monsterDamage = Math.max(1, monsterStats.str);
+
+    if (targetIndex === 0) {
+       monsterDamage = Math.max(1, Math.floor(monsterStats.str - (playerStats.dex / 2)));
+
+       log.push(`> O ${currentMonster.name} ataca VOCÊ causando ${monsterDamage} de dano.`);
+       
+       character.currentHP -= monsterDamage;
+
+    } else {
+      const summonIndex = targetIndex - 1;
+      const targetSummon = gameState.activeSummons[summonIndex];
+      log.push(`> O ${currentMonster.name} ataca ${targetSummon.name} causando ${monsterDamage} de dano.`);
+      
+      dispatch({ type: 'MONSTER_ATTACK_SUMMON', payload: { index: summonIndex, damage: monsterDamage } });
+      
+      if (targetSummon.stats.hp - monsterDamage <= 0) {
+        log.push(`  ${targetSummon.name} foi destruído!`);
+      }
+    }
+
     const isParalyzed = currentMonster.statusEffects.find(e => e.id === 'paralyzed');
 
     if (isParalyzed) {
@@ -827,8 +945,15 @@ export function useTerminalLogic() {
         statsLines.push(`  - ${e.id} (${e.duration} turnos restantes)`);
       });
     }
+    if (gameState.activeSummons.length > 0) {
+      statsLines.push('--- Invocações ---');
+      gameState.activeSummons.forEach(s => {
+        statsLines.push(`  - ${s.name}: ${s.stats.hp}/${s.stats.maxHp} HP`);
+      });
+    }
     return statsLines;
   };
+  
 
   const showMonsterStats = (monster: CombatMonster): string[] => {
     const healthBar = createHealthBar(monster.currentHP, monster.stats.hp);
@@ -853,12 +978,15 @@ export function useTerminalLogic() {
     
     return [
       '--- Inventário ---',
-      ...uniqueItems.map((item, index) => { // Adiciona 'index'
+      ...uniqueItems.map((item, index) => {
         const count = inventoryList.filter(i => i.id === item.id).length;
-        // Usa o índice + 1
-        return `  ${index + 1}. ${item.name} ${count > 1 ? `(x${count})` : ''} [${item.type}]`;
+        // Mostra o Tier se for equipamento
+        const tierInfo = (item.type === 'Equipment') ? ` [T${(item as Equipment).tier}]` : '';
+        const sellPrice = Math.floor(item.price / 2);
+        
+        return `  ${index + 1}. ${item.name}${tierInfo} ${count > 1 ? `(x${count})` : ''} [Vende: ${sellPrice}G]`;
       }),
-      "Use 'equip [num/nome]' ou 'use [num/nome]'."
+      "Use 'equip [num]', 'use [num]' ou 'sell [num] [qty]'."
     ];
   };
 
@@ -1032,6 +1160,125 @@ export function useTerminalLogic() {
         response = [`Você comprou ${itemToBuy.name} por ${itemToBuy.price} G.`];
         break;
       }
+
+      case 'sell': {
+        if (!gameState.character) {
+          response = ["Crie um personagem primeiro."];
+          break;
+        }
+        
+        // Args[0] = Nome ou ID do item
+        // Args[1] = Quantidade (Opcional)
+        const query = args[0]; 
+        const qtyArg = args[1]; // Pode ser undefined
+
+        if (!query) {
+          response = ["Uso: sell [nome/num] [qtd] (Ex: sell ouro 5)"];
+          break;
+        }
+
+        // 1. Encontra o TIPO do item
+        const itemTemplate = findInList(query, gameState.character.inventory);
+
+        if (!itemTemplate) {
+          response = [`Item '${query}' não encontrado no inventário.`];
+          break;
+        }
+
+        if (itemTemplate.price <= 0) {
+          response = [`${itemTemplate.name} não tem valor comercial.`];
+          break;
+        }
+
+        // 2. Conta quantos desse item o jogador TEM de verdade
+        const countOwned = gameState.character.inventory.filter(i => i.id === itemTemplate.id).length;
+
+        // 3. Define a quantidade a vender
+        let qtyToSell = 1; // Padrão é 1
+
+        if (qtyArg) {
+          const parsedQty = parseInt(qtyArg, 10);
+          if (isNaN(parsedQty) || parsedQty <= 0) {
+            response = [`Quantidade inválida: '${qtyArg}'.`];
+            break;
+          }
+          qtyToSell = parsedQty;
+        }
+
+        // 4. Validação: Você tem itens suficientes?
+        if (qtyToSell > countOwned) {
+          response = [`Você só tem ${countOwned}x ${itemTemplate.name}.`];
+          break;
+        }
+
+        // 5. Executa a venda
+        const sellPriceUnit = Math.floor(itemTemplate.price / 2);
+        const totalGain = sellPriceUnit * qtyToSell;
+
+        dispatch({ 
+          type: 'SELL_ITEM', 
+          payload: { itemId: itemTemplate.id, price: sellPriceUnit, qty: qtyToSell } 
+        });
+        
+        response = [`Você vendeu ${qtyToSell}x ${itemTemplate.name} por ${totalGain} G.`];
+        break;
+      }
+
+      case 'evolve': {
+        if (!gameState.character) {
+          response = ["Crie um personagem primeiro."];
+          break;
+        }
+        const char = gameState.character;
+        const currentClass = char.charClass.name;
+        const evolutionData = CLASS_EVOLUTIONS[currentClass];
+
+        if (!evolutionData) {
+          response = [`A classe ${currentClass} não tem mais evoluções disponíveis.`];
+          break;
+        }
+
+        if (char.level < evolutionData.level) {
+          response = [`Você precisa ser nível ${evolutionData.level} para evoluir (Nível atual: ${char.level}).`];
+          break;
+        }
+
+        const inputQuery = args.join(' '); // O que o usuário digitou
+        
+        if (!inputQuery) {
+          response = [
+            `Evoluções disponíveis para ${currentClass}:`,
+            // MOSTRA OS NÚMEROS (Índice + 1)
+            ...evolutionData.options.map((opt, index) => `  ${index + 1}. ${opt}`),
+            `Digite 'evolve [Nome ou Número]' para evoluir.`
+          ];
+          break;
+        }
+
+        let validOption: string | undefined;
+
+        // 1. Tenta buscar pelo NÚMERO
+        const index = parseInt(inputQuery, 10);
+        if (!isNaN(index) && index > 0 && index <= evolutionData.options.length) {
+          validOption = evolutionData.options[index - 1];
+        } else {
+          // 2. Se não for número, tenta buscar pelo NOME
+          validOption = evolutionData.options.find(opt => opt.toLowerCase() === inputQuery.toLowerCase());
+        }
+
+        if (validOption) {
+          dispatch({ type: 'EVOLVE_CLASS', payload: validOption });
+          response = [
+            `*** PARABÉNS! ***`,
+            `Você evoluiu de ${currentClass} para ${validOption}!`,
+            `Novas habilidades e poderes foram desbloqueados.`
+          ];
+        } else {
+          response = [`'${inputQuery}' não é uma opção válida. Escolha entre 1 e ${evolutionData.options.length}.`];
+        }
+        break;
+      }
+
       case 'help':
         response = showHelp();
         break;

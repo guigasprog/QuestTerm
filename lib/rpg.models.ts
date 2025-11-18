@@ -25,6 +25,7 @@ export interface Item {
   type: ItemType;
   description: string;
   price: number;
+  value?: number;
 }
 
 export interface Potion extends Item {
@@ -38,7 +39,8 @@ export interface Potion extends Item {
 export interface Equipment extends Item {
   type: 'Equipment';
   slot: EquipmentSlot;
-  stats: Partial<Stats>; 
+  stats: Partial<Stats>;
+  tier: number;
 }
 
 export interface Currency extends Item {
@@ -73,7 +75,12 @@ export interface SkillEffect_DirectDamage {
   value: number;
 }
 
-export type SkillEffect = SkillEffect_ApplyStatus | SkillEffect_DirectDamage;
+export interface SkillEffect_Summon {
+  type: 'summon';
+  summonId: string;
+}
+
+export type SkillEffect = SkillEffect_ApplyStatus | SkillEffect_DirectDamage | SkillEffect_Summon;
 
 export interface Skill {
   id: string;
@@ -234,6 +241,16 @@ export interface Monster {
 export interface CombatMonster extends Monster {
   currentHP: number; 
   statusEffects: StatusEffect[];
+}
+
+export interface Summon {
+  id: string;
+  name: string;
+  stats: {
+    hp: number;
+    maxHp: number;
+    dmg: number;
+  };
 }
 
 export interface GitHubRepo {
