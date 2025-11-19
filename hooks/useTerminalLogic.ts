@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import {
   Character,
   CombatMonster,
@@ -37,7 +37,6 @@ interface GameState {
   shopStock: Item[];
   shopLastRefresh: number;
   activeSummons: Summon[];
-  actionsTaken: number; // NEW: Track actions in current turn
 }
 
 type GameAction =
@@ -79,6 +78,7 @@ type GameAction =
   | { type: "LOAD_CHARACTER"; payload: Character }
   | { type: "ABANDON_CHARACTER" }
   | { type: "USE_STAMINA" }
+  | { type: "RESTORE_STAMINA" }
   | {
       type: "SELL_ITEM";
       payload: { itemId: string; price: number; qty: number };
@@ -91,8 +91,10 @@ type GameAction =
       type: "MONSTER_ATTACK_SUMMON";
       payload: { index: number; damage: number };
     }
-  | { type: "INCREMENT_ACTION" } // NEW
-  | { type: "RESET_ACTION" }; // NEW
+  | {
+      type: "PASSIVE_HEAL_TIME";
+      payload: { amount: number; timestamp: number };
+    };
 
 const initialGameState: GameState = {
   character: null,
@@ -103,7 +105,6 @@ const initialGameState: GameState = {
   shopStock: [],
   shopLastRefresh: 0,
   activeSummons: [],
-  actionsTaken: 0,
 };
 
 const cloneCharacter = (char: Character): Character => {
@@ -134,10 +135,23 @@ const createHealthBar = (
 };
 
 function gameReducer(state: GameState, action: GameAction): GameState {
+  if (action.type === "START_CREATION") {
+    return { ...initialGameState, gameState: "AWAITING_NAME" };
+  }
   if (!state.character) {
     switch (action.type) {
-      case "START_CREATION":
-        return { ...initialGameState, gameState: "AWAITING_NAME" };
+      case "PASSIVE_HEAL_TIME": {
+        if (!state.character) return state;
+        const newChar = cloneCharacter(state.character);
+        const { amount, timestamp } = action.payload;
+
+        const maxHP = newChar.getCombatStats().hp;
+        newChar.currentHP = Math.min(maxHP, newChar.currentHP + amount);
+
+        newChar.lastPassiveHeal = timestamp;
+
+        return { ...state, character: newChar };
+      }
       case "SET_NAME":
         return {
           ...state,
@@ -177,11 +191,15 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         currentMonster: action.payload.monster,
       };
     }
+
     case "TRAIN": {
       if (!state.character) return state;
       const newChar = cloneCharacter(state.character);
+
       newChar.baseStats[action.payload.stat] += action.payload.gain;
+
       const leveledUp = newChar.addExp(action.payload.xp);
+
       if (leveledUp) {
         newChar.attributePoints += 3;
         const learnedSkills = getNewSkills(
@@ -192,6 +210,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
           newChar.knownSkills.push(...learnedSkills);
         }
       }
+
       return { ...state, character: newChar };
     }
 
@@ -199,6 +218,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       if (!state.character) return state;
       const newChar = cloneCharacter(state.character);
       const { stat, amount } = action.payload;
+
       if (newChar.attributePoints >= amount) {
         newChar.baseStats[stat] += amount;
         newChar.attributePoints -= amount;
@@ -210,6 +230,13 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       if (!state.character) return state;
       const newChar = cloneCharacter(state.character);
       newChar.stamina--;
+      return { ...state, character: newChar };
+    }
+
+    case "RESTORE_STAMINA": {
+      if (!state.character) return state;
+      const newChar = cloneCharacter(state.character);
+      newChar.stamina = 3;
       newChar.lastStaminaRefresh = Date.now();
       return { ...state, character: newChar };
     }
@@ -220,8 +247,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         gameState: "IN_COMBAT",
         currentMonster: action.payload,
         combatLog: [],
-        actionsTaken: 0,
       };
+
     case "SUMMON_CREATURE":
       if (state.activeSummons.length >= 3) return state;
       return {
@@ -233,6 +260,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       if (!state.character) return state;
       const newCharEvolved = cloneCharacter(state.character);
       const newClassDefinition = CLASSES_DB[action.payload];
+
       if (newClassDefinition) {
         newCharEvolved.charClass = newClassDefinition;
         const evolvedSkills = getNewSkills(
@@ -247,6 +275,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       } else {
         newCharEvolved.charClass.name = action.payload;
       }
+
       return { ...state, character: newCharEvolved };
     }
 
@@ -260,6 +289,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       const summons = [...state.activeSummons];
       const targetSummon = { ...summons[action.payload.index] };
       targetSummon.stats.hp -= action.payload.damage;
+
       if (targetSummon.stats.hp <= 0) {
         summons.splice(action.payload.index, 1);
       } else {
@@ -271,6 +301,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       if (!state.character) return state;
       const { exp, loot, log, gold, monsterName } = action.payload;
       const newChar = cloneCharacter(state.character);
+
       newChar.gold += gold;
       const currentKills = newChar.monsterKills.get(monsterName) || 0;
       newChar.monsterKills.set(monsterName, currentKills + 1);
@@ -279,9 +310,6 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       newChar.inventory.push(...loot);
 
       if (leveledUp) {
-        log.push(
-          `*** VOCÊ SUBIU DE NÍVEL! Agora você é nível ${newChar.level}! ***`
-        );
         newChar.attributePoints += 3;
         const learnedSkills = getNewSkills(
           newChar.charClass.name,
@@ -289,15 +317,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         );
         if (learnedSkills.length > 0) {
           newChar.knownSkills.push(...learnedSkills);
-          log.push(
-            `Você aprendeu novas habilidades: ${learnedSkills
-              .map((s) => s.name)
-              .join(", ")}`
-          );
         }
-        log.push(
-          `Você ganhou +3 pontos de atributo! Use 'up [stat] [qtd]' para distribuir.`
-        );
       }
 
       return {
@@ -307,7 +327,6 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         combatLog: log,
         character: newChar,
         activeSummons: [],
-        actionsTaken: 0,
       };
     }
 
@@ -317,7 +336,6 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         gameState: "IDLE",
         currentMonster: null,
         combatLog: ["Você fugiu covardemente."],
-        actionsTaken: 0,
       };
 
     case "RESTORE_GAME_STATE":
@@ -334,16 +352,15 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         currentMonster: null,
         combatLog: ["Você morreu e perdeu metade do seu EXP..."],
         character: newChar,
-        actionsTaken: 0,
       };
     }
 
-    // ... (Item actions) ...
     case "EQUIP_ITEM": {
       if (!state.character) return state;
       const newChar = cloneCharacter(state.character);
       const item = action.payload;
       const oldItem = newChar.equipment[item.slot];
+
       if (oldItem) newChar.inventory.push(oldItem);
       newChar.inventory = newChar.inventory.filter((i) => i.id !== item.id);
       newChar.equipment[item.slot] = item;
@@ -373,6 +390,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       if (!state.character) return state;
       const newCharSell = cloneCharacter(state.character);
       const { itemId, price, qty } = action.payload;
+
       let itemsRemoved = 0;
       for (let i = 0; i < qty; i++) {
         const index = newCharSell.inventory.findIndex(
@@ -426,12 +444,6 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, character: newCharStatus };
     }
 
-    case "INCREMENT_ACTION":
-      return { ...state, actionsTaken: state.actionsTaken + 1 };
-
-    case "RESET_ACTION":
-      return { ...state, actionsTaken: 0 };
-
     case "ABANDON_CHARACTER":
       return initialGameState;
 
@@ -453,7 +465,6 @@ export function useTerminalLogic() {
   const [projects, setProjects] = useState<GitHubRepo[] | null>(null);
   const [commits, setCommits] = useState<GitHubCommit[] | null>(null);
 
-  // ... (saveToMemorial, showMemorial, fetchProjects, fetchCommits, showPatchNotes, load/save useEffects - same as before)
   const saveToMemorial = (character: Character) => {
     try {
       const entry: MemorialEntry = {
@@ -552,17 +563,15 @@ export function useTerminalLogic() {
       return ["Não foi possível carregar os commits recentes."];
     return [
       "--- Patch Notes (Últimos Commits) ---",
-      ...commits.map(
-        (c) =>
-          `  [${new Date(c.commit.author.date).toLocaleDateString("pt-BR")}] ${
-            c.commit.message.split("\n")[0]
-          }`
-      ),
+      ...commits.map((c) => {
+        const title = c.commit.message.split("\n")[0];
+        const date = new Date(c.commit.author.date).toLocaleDateString("pt-BR");
+        return `  [${date}] ${title}`;
+      }),
       "  (Digite 'open repo' para ver o código completo)",
     ];
   };
 
-  // LOAD GAME
   useEffect(() => {
     try {
       const savedString = localStorage.getItem(LOCALSTORAGE_KEY);
@@ -570,8 +579,9 @@ export function useTerminalLogic() {
         const savedData = JSON.parse(savedString);
         const charData = savedData.character;
         const charClass =
-          availableClasses.find((c) => c.name === charData.charClass.name) ||
-          CLASSES_DB[charData.charClass.name];
+          availableClasses.find(
+            (c) => c && c.name === charData.charClass.name
+          ) || CLASSES_DB[charData.charClass.name];
 
         if (charClass) {
           const newChar = new Character(charData.name, charClass);
@@ -592,7 +602,12 @@ export function useTerminalLogic() {
             newChar.attributePoints = 0;
           }
 
+          if (newChar.lastPassiveHeal === undefined) {
+            newChar.lastPassiveHeal = Date.now();
+          }
+
           dispatch({ type: "LOAD_CHARACTER", payload: newChar });
+
           dispatch({
             type: "RESTORE_GAME_STATE",
             payload: {
@@ -601,9 +616,9 @@ export function useTerminalLogic() {
               shopStock: savedData.shopStock || [],
               shopLastRefresh: savedData.shopLastRefresh || 0,
               activeSummons: savedData.activeSummons || [],
-              actionsTaken: savedData.actionsTaken || 0, // Restore actions taken
             },
           });
+
           setHistory((prev) => [
             ...prev,
             `Jogo salvo de '${newChar.name}' (Nível ${newChar.level}) carregado.`,
@@ -624,14 +639,12 @@ export function useTerminalLogic() {
     }
   }, []);
 
-  // SAVE GAME
-  useEffect(() => {
-    if (!isInitialized) return;
+  const saveGameNow = (stateToSave: GameState) => {
     try {
-      const { character } = gameState;
+      const { character } = stateToSave;
       if (character) {
         const dataToSave = {
-          ...gameState,
+          ...stateToSave,
           character: {
             ...character,
             skillCooldowns: Array.from(character.skillCooldowns.entries()),
@@ -643,11 +656,15 @@ export function useTerminalLogic() {
         localStorage.removeItem(LOCALSTORAGE_KEY);
       }
     } catch (err) {
-      console.error("Falha ao salvar jogo", err);
+      console.error("Falha ao salvar jogo manualmente", err);
     }
+  };
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    saveGameNow(gameState);
   }, [gameState, isInitialized]);
 
-  // ... (findInList, showCombatAbilities, showCombatInventory, listClasses, showPortfolio, showSkills, showMonsterStats, showInventory, showAbilities, showHelp, generateShopStock, checkAndRefreshShop, handleFindBattle, handleEquip) ...
   const findInList = <T extends { name: string; id: string }>(
     query: string,
     list: T[]
@@ -668,7 +685,11 @@ export function useTerminalLogic() {
     const { knownSkills, skillCooldowns } = gameState.character;
     if (knownSkills.length === 0)
       return ["Você não conhece nenhuma habilidade."];
-    const log = ["--- Habilidades (Combate) ---"];
+
+    const log = [
+      "--- Habilidades (Combate) ---",
+      "Use 'cast [num/nome]' em combate.",
+    ];
     knownSkills.forEach((skill, index) => {
       const cooldown = skillCooldowns.get(skill.id);
       const prefix = `  ${index + 1}. ${skill.name} (${skill.type})`;
@@ -696,6 +717,417 @@ export function useTerminalLogic() {
       log.push(`  ${index + 1}. ${item.name} (x${count})`);
     });
     return log;
+  };
+
+  const generateShopStock = (): Item[] => {
+    const vendorableItems = Object.values(ITEMS_DB).filter(
+      (item) =>
+        (item.type === "Potion" || item.type === "Equipment") && item.price > 0
+    );
+    const shuffled = vendorableItems.sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, 3);
+  };
+
+  const checkAndRefreshShop = (): Item[] => {
+    const now = Date.now();
+    const oneHour = 1000 * 60 * 60;
+    const storedShop = localStorage.getItem(SHOP_KEY);
+
+    if (storedShop) {
+      const { stock, timestamp } = JSON.parse(storedShop);
+      if (now - timestamp < oneHour) {
+        if (
+          gameState.shopStock.length === 0 ||
+          gameState.shopLastRefresh !== timestamp
+        ) {
+          dispatch({ type: "SET_SHOP_STOCK", payload: { stock, timestamp } });
+        }
+        return stock;
+      }
+    }
+    const newStock = generateShopStock();
+    localStorage.setItem(
+      SHOP_KEY,
+      JSON.stringify({ stock: newStock, timestamp: now })
+    );
+    dispatch({
+      type: "SET_SHOP_STOCK",
+      payload: { stock: newStock, timestamp: now },
+    });
+    return newStock;
+  };
+
+  const processCombatTurn = (
+    action: "attack" | "run" | { skill: Skill } | { item: Item }
+  ): string[] => {
+    const { character, currentMonster } = gameState;
+    if (!character || !currentMonster) return ["Erro: Combate inválido."];
+
+    const charClone = cloneCharacter(character);
+    const monsterClone = {
+      ...currentMonster,
+      statusEffects: [...currentMonster.statusEffects],
+    };
+    const playerStats = charClone.getCombatStats();
+    const log: string[] = [];
+
+    const critChance = Math.min(0.75, playerStats.dex * 0.002);
+    const extraActions = Math.floor(playerStats.dex / 30);
+    const totalActions = 1 + extraActions;
+    const magicDmgMult = 1 + Math.floor(playerStats.int / 5) * 0.05;
+    const magicDurationBonus = Math.floor(playerStats.int / 10);
+
+    const isRepeatableAction =
+      action === "attack" || (typeof action === "object" && "skill" in action);
+    const loops = isRepeatableAction ? totalActions : 1;
+
+    for (let i = 0; i < loops; i++) {
+      if (monsterClone.currentHP <= 0) break;
+
+      if (i > 0) log.push(`> [VELOCIDADE] Sua DEX permite uma ação extra!`);
+
+      if (action === "attack") {
+        const monsterStats = monsterClone.stats;
+        let playerDamage = Math.max(
+          1,
+          Math.floor(playerStats.str - monsterStats.dex / 2)
+        );
+
+        if (Math.random() < critChance) {
+          playerDamage = Math.floor(playerDamage * 2);
+          log.push(`> CRÍTICO! (Chance: ${(critChance * 100).toFixed(1)}%)`);
+        }
+
+        monsterClone.currentHP -= playerDamage;
+        log.push(
+          `> Você ataca o ${monsterClone.name} causando ${playerDamage} de dano.`
+        );
+      } else if (action === "run") {
+        log.push("> Você tenta fugir...");
+        const playerLevel = charClone.level;
+        const monsterLevel = monsterClone.minLevel;
+        const levelDifference = monsterLevel - playerLevel;
+        const baseChance = 0.8;
+        const penaltyPerLevel = 0.1;
+        const dexBonus = playerStats.dex * 0.015;
+
+        const escapeChance = Math.max(
+          0.1,
+          Math.min(
+            0.95,
+            baseChance - levelDifference * penaltyPerLevel + dexBonus
+          )
+        );
+
+        if (Math.random() <= escapeChance) {
+          dispatch({ type: "RUN_AWAY" });
+          log.push("  ...e consegue escapar!");
+          return log;
+        }
+        log.push("  ...mas o monstro bloqueia seu caminho!");
+      } else if (typeof action === "object" && "item" in action) {
+        log.push(`> Você usa '${action.item.name}'!`);
+        if (action.item.type === "Potion") {
+          const potion = action.item as Potion;
+          if (potion.effect === "heal") {
+            const maxHP = charClone.getCombatStats().hp;
+            charClone.currentHP = Math.min(
+              maxHP,
+              charClone.currentHP + potion.value
+            );
+            log.push(`  Você recupera ${potion.value} HP.`);
+          }
+        }
+        const index = charClone.inventory.findIndex(
+          (it) => it.id === action.item.id
+        );
+        if (index > -1) charClone.inventory.splice(index, 1);
+      } else if (typeof action === "object" && "skill" in action) {
+        const skill = action.skill;
+        if (i === 0) {
+          log.push(`> Você usa '${skill.name}'!`);
+          charClone.skillCooldowns.set(skill.id, skill.cooldown);
+        } else {
+          log.push(`> Você usa '${skill.name}' NOVAMENTE!`);
+        }
+
+        const target = skill.target === "Self" ? charClone : monsterClone;
+
+        skill.effects.forEach((effect) => {
+          switch (effect.type) {
+            case "summon": {
+              if (i === 0) {
+                if (gameState.activeSummons.length >= 3) {
+                  log.push("Limite de invocações atingido!");
+                } else {
+                  const summonTemplate = SUMMONS_DB[effect.summonId];
+                  const newSummon = {
+                    ...summonTemplate,
+                    id: `${summonTemplate.id}_${Date.now()}`,
+                  };
+                  dispatch({ type: "SUMMON_CREATURE", payload: newSummon });
+                  log.push(`Você invocou ${newSummon.name}!`);
+                }
+              }
+              break;
+            }
+            case "apply_status": {
+              let finalDuration = effect.duration;
+              if (skill.type === "Magic") {
+                finalDuration += magicDurationBonus;
+                if (magicDurationBonus > 0 && i === 0)
+                  log.push(`  (INT Bonus: +${magicDurationBonus} turnos)`);
+              }
+              const newEffect: StatusEffect = {
+                id: effect.effectId,
+                duration: finalDuration,
+                potency: effect.potency,
+              };
+              if ("charClass" in target) target.addStatusEffect(newEffect);
+              else {
+                target.statusEffects = target.statusEffects.filter(
+                  (e) => e.id !== newEffect.id
+                );
+                target.statusEffects.push(newEffect);
+              }
+              log.push(
+                `  O ${
+                  target === charClone ? "Você" : target.name
+                } é afetado por '${effect.effectId}'!`
+              );
+              break;
+            }
+            case "direct_damage": {
+              let dmg = effect.value;
+              if (skill.type === "Magic") {
+                const oldDmg = dmg;
+                dmg = Math.floor(dmg * magicDmgMult);
+                if (dmg > oldDmg && i === 0)
+                  log.push(`  (Amplificado por INT: ${oldDmg} -> ${dmg})`);
+              }
+              if (Math.random() < critChance) {
+                dmg = Math.floor(dmg * 2);
+                log.push(`  CRÍTICO!`);
+              }
+              monsterClone.currentHP -= dmg;
+              log.push(`  Causando ${dmg} de dano!`);
+              break;
+            }
+          }
+        });
+      }
+    }
+
+    if (gameState.activeSummons.length > 0 && monsterClone.currentHP > 0) {
+      let totalSummonDamage = 0;
+      gameState.activeSummons.forEach((summon) => {
+        totalSummonDamage += summon.stats.dmg;
+        log.push(
+          `> ${summon.name} ataca causando ${summon.stats.dmg} de dano.`
+        );
+      });
+      monsterClone.currentHP -= totalSummonDamage;
+      dispatch({ type: "SUMMON_ATTACK_MONSTER", payload: totalSummonDamage });
+    }
+
+    monsterClone.statusEffects.forEach((effect) => {
+      if (effect.id === "poisoned" && effect.potency) {
+        monsterClone.currentHP -= effect.potency;
+        log.push(
+          `> O ${monsterClone.name} sofre ${effect.potency} de dano de veneno.`
+        );
+      }
+      if (effect.id === "burning" && effect.potency) {
+        monsterClone.currentHP -= effect.potency;
+        log.push(
+          `> O ${monsterClone.name} sofre ${effect.potency} de dano de fogo.`
+        );
+      }
+    });
+
+    if (monsterClone.currentHP <= 0) {
+      const exp = monsterClone.expReward;
+      const loot: Item[] = [];
+      let goldFound = 0;
+
+      monsterClone.lootTable.forEach((drop) => {
+        if (Math.random() < drop.dropChance) {
+          const baseItem = drop.item;
+          if (baseItem.type === "Currency") {
+            const amount = Math.max(
+              1,
+              Math.floor(monsterClone.minLevel * 2 * (1 + Math.random()))
+            );
+            goldFound += amount;
+          } else {
+            loot.push(baseItem);
+          }
+        }
+      });
+
+      const simChar = cloneCharacter(charClone);
+      const leveledUp = simChar.addExp(exp);
+
+      log.push(``);
+      log.push(`========================================`);
+      log.push(`🏆 VITÓRIA! Você derrotou: ${monsterClone.name}`);
+      log.push(`========================================`);
+      log.push(`💎 XP Ganho: +${exp}`);
+
+      if (goldFound > 0) log.push(`💰 Ouro: +${goldFound} G`);
+
+      if (loot.length > 0) {
+        log.push(`🎒 Loot Encontrado:`);
+        loot.forEach((item) => log.push(`   - ${item.name} (${item.type})`));
+      } else {
+        log.push(`🎒 Loot: Nada encontrado.`);
+      }
+
+      if (leveledUp) {
+        log.push(``);
+        log.push(`🌟 LEVEL UP! Nível ${charClone.level} -> ${simChar.level}`);
+        log.push(`   +3 Pontos de Atributo (Use 'up')`);
+        const newSkills = getNewSkills(simChar.charClass.name, simChar.level);
+        if (newSkills.length > 0) {
+          log.push(
+            `   📚 Novas Habilidades: ${newSkills
+              .map((s) => s.name)
+              .join(", ")}`
+          );
+        }
+        log.push(`   Vida e Mana restauradas!`);
+      }
+      log.push(`========================================`);
+
+      dispatch({
+        type: "END_COMBAT",
+        payload: {
+          exp,
+          loot,
+          log,
+          gold: goldFound,
+          monsterName: monsterClone.name,
+        },
+      });
+      return log;
+    }
+
+    const isParalyzed = monsterClone.statusEffects.find(
+      (e) => e.id === "paralyzed"
+    );
+
+    if (isParalyzed) {
+      log.push(`> O ${monsterClone.name} está paralisado e não pode se mover!`);
+    } else {
+      const targetsCount = 1 + gameState.activeSummons.length;
+      const targetIndex = Math.floor(Math.random() * targetsCount);
+      const monsterStats = monsterClone.stats;
+
+      if (targetIndex === 0) {
+        const isInvisible = charClone.statusEffects.find(
+          (e) => e.id === "invisible"
+        );
+        if (isInvisible) {
+          log.push(
+            `> O ${monsterClone.name} ataca, mas você está invisível e ele erra!`
+          );
+        } else {
+          let monsterDamage = Math.max(
+            1,
+            Math.floor(monsterStats.str - playerStats.dex / 2)
+          );
+
+          const reduceDmg = charClone.statusEffects.find(
+            (e) => e.id === "damage_reduction"
+          );
+          if (reduceDmg && reduceDmg.potency) {
+            monsterDamage = Math.max(0, monsterDamage - reduceDmg.potency);
+            log.push(`  Sua defesa reduz o dano!`);
+          }
+
+          charClone.currentHP -= monsterDamage;
+          log.push(
+            `> O ${monsterClone.name} ataca VOCÊ causando ${monsterDamage} de dano.`
+          );
+        }
+      } else {
+        const summonIndex = targetIndex - 1;
+        const targetSummon = gameState.activeSummons[summonIndex];
+        const damageToSummon = Math.max(1, monsterStats.str);
+
+        log.push(
+          `> O ${monsterClone.name} ataca ${targetSummon.name} causando ${damageToSummon} de dano.`
+        );
+        dispatch({
+          type: "MONSTER_ATTACK_SUMMON",
+          payload: { index: summonIndex, damage: damageToSummon },
+        });
+        if (targetSummon.stats.hp - damageToSummon <= 0) {
+          log.push(`  ${targetSummon.name} foi destruído!`);
+        }
+      }
+    }
+
+    charClone.tickTurn();
+    monsterClone.statusEffects = monsterClone.statusEffects.filter((e) => {
+      e.duration--;
+      return e.duration > 0;
+    });
+
+    if (charClone.currentHP <= 0) {
+      log.push(`> *** VOCÊ MORREU ***`);
+      saveToMemorial(charClone);
+      dispatch({ type: "GAME_OVER" });
+      return log;
+    }
+
+    dispatch({
+      type: "UPDATE_COMBAT_TURN",
+      payload: { character: charClone, monster: monsterClone, log },
+    });
+
+    saveGameNow({
+      ...gameState,
+      character: charClone,
+      currentMonster: monsterClone,
+      activeSummons: gameState.activeSummons,
+    });
+
+    return log;
+  };
+
+  const handleFindBattle = (): string[] => {
+    if (!gameState.character) return ["Crie um personagem primeiro."];
+    const charLevel = gameState.character.level;
+    const availableSpawns = MONSTERS_DB.filter((m) => m.minLevel <= charLevel);
+    const weightedSpawns = availableSpawns.flatMap((m) =>
+      Array(m.minLevel).fill(m)
+    );
+    if (weightedSpawns.length === 0) return ["Nenhum monstro encontrado..."];
+    const monsterTemplate =
+      weightedSpawns[Math.floor(Math.random() * weightedSpawns.length)];
+    const combatMonster: CombatMonster = {
+      ...monsterTemplate,
+      currentHP: monsterTemplate.stats.hp,
+      statusEffects: [],
+    };
+    dispatch({ type: "FIND_BATTLE", payload: combatMonster });
+    return [
+      `!!! Um ${combatMonster.name} selvagem (Nível ${combatMonster.minLevel}) aparece !!!`,
+      "Digite 'attack', 'use', 'cast' ou 'run'.",
+    ];
+  };
+
+  const handleEquip = (args: string[]): string[] => {
+    if (!gameState.character) return ["Crie um personagem primeiro."];
+    const itemName = args.join(" ");
+    if (!itemName) return ["Uso: equip [nome do item]"];
+    const item = findInList(itemName, gameState.character.inventory);
+    if (!item) return [`Item '${itemName}' não encontrado no inventário.`];
+    if (item.type !== "Equipment")
+      return [`'${item.name}' não é um item equipável.`];
+    dispatch({ type: "EQUIP_ITEM", payload: item as Equipment });
+    return [`Você equipou ${item.name}.`];
   };
 
   const listClasses = (): string[] => {
@@ -744,7 +1176,6 @@ export function useTerminalLogic() {
     const combat = char.getCombatStats();
     const healthBar = createHealthBar(char.currentHP, combat.hp);
 
-    // Cálculos para exibição
     const critChance = Math.min(75, combat.dex * 0.2).toFixed(1);
     const extraActions = Math.floor(combat.dex / 30);
     const magicBoost = (Math.floor(combat.int / 5) * 0.05 * 100).toFixed(0);
@@ -837,7 +1268,7 @@ export function useTerminalLogic() {
           cooldown ? `RECARGA: ${cooldown}t` : "PRONTO"
         }]\n     ${skill.description}`;
       }),
-      "Use 'cast [num/nome]' ou 'use [num/nome]' em combate.",
+      "Use 'cast [num/nome]' em combate.",
     ];
   };
 
@@ -866,459 +1297,113 @@ export function useTerminalLogic() {
     "  shop           - Mostra a loja (estoque rotativo).",
     "  buy [numero]   - Compra um item da loja.",
     "  sell [item] [qtd] - Vende um item da loja.",
-    "  evolve [classe] - Evolui sua classe (Nv. 10/20).",
+    "  evolve [classe] - Evolui sua classe (Nv. 5/10/15/20).",
     "",
     "--- Comandos de Combate (Apenas em batalha) ---",
     "  stats          - Mostra stats do jogador e monstro (ação livre).",
     "  a | attack     - Ataca o monstro com sua arma.",
-    "  use [item/hab] - Usa um ITEM (Poção) ou HABILIDADE (Grito de Guerra).",
-    "  cast [magia]   - Lança uma MAGIA (Bola de Fogo).",
+    "  use [item] - Usa um ITEM (Poção).",
+    "  cast [habilidade]   - Lança uma HABILIDADE (Bola de Fogo).",
     "  run            - Tenta fugir da batalha.",
   ];
 
-  const generateShopStock = (): Item[] => {
-    const vendorableItems = Object.values(ITEMS_DB).filter(
-      (item) =>
-        (item.type === "Potion" || item.type === "Equipment") && item.price > 0
-    );
-    const shuffled = vendorableItems.sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, 3);
+  const notifyUser = (title: string, body: string) => {
+    if (!("Notification" in window)) return;
+
+    if (Notification.permission === "granted") {
+      new Notification(title, {
+        body,
+        icon: "/favicon.ico",
+        tag: "questterm-heal",
+      });
+    } else if (Notification.permission !== "denied") {
+      Notification.requestPermission().then((permission) => {
+        if (permission === "granted") {
+          new Notification(title, {
+            body,
+            icon: "/favicon.ico",
+            tag: "questterm-heal",
+          });
+        }
+      });
+    }
   };
 
-  const checkAndRefreshShop = (): Item[] => {
+  const checkPassiveEvents = () => {
+    if (!gameState.character) return;
+
     const now = Date.now();
     const oneHour = 1000 * 60 * 60;
-    const storedShop = localStorage.getItem(SHOP_KEY);
-    if (storedShop) {
-      const { stock, timestamp } = JSON.parse(storedShop);
-      if (now - timestamp < oneHour) {
-        if (
-          gameState.shopStock.length === 0 ||
-          gameState.shopLastRefresh !== timestamp
-        ) {
-          dispatch({ type: "SET_SHOP_STOCK", payload: { stock, timestamp } });
-        }
-        return stock;
-      }
-    }
-    const newStock = generateShopStock();
-    localStorage.setItem(
-      SHOP_KEY,
-      JSON.stringify({ stock: newStock, timestamp: now })
-    );
-    dispatch({
-      type: "SET_SHOP_STOCK",
-      payload: { stock: newStock, timestamp: now },
-    });
-    return newStock;
-  };
+    const lastHeal = gameState.character.lastPassiveHeal || now;
+    const diff = now - lastHeal;
 
-  const handleFindBattle = (): string[] => {
-    if (!gameState.character) return ["Crie um personagem primeiro."];
-    const charLevel = gameState.character.level;
-    const availableSpawns = MONSTERS_DB.filter((m) => m.minLevel <= charLevel);
-    const weightedSpawns = availableSpawns.flatMap((m) =>
-      Array(m.minLevel).fill(m)
-    );
-    if (weightedSpawns.length === 0) return ["Nenhum monstro encontrado..."];
-    const monsterTemplate =
-      weightedSpawns[Math.floor(Math.random() * weightedSpawns.length)];
-    const combatMonster: CombatMonster = {
-      ...monsterTemplate,
-      currentHP: monsterTemplate.stats.hp,
-      statusEffects: [],
-    };
-    dispatch({ type: "FIND_BATTLE", payload: combatMonster });
-    return [
-      `!!! Um ${combatMonster.name} selvagem (Nível ${combatMonster.minLevel}) aparece !!!`,
-      "Digite 'attack', 'use', 'cast' ou 'run'.",
-    ];
-  };
+    if (diff >= oneHour) {
+      const hoursPassed = Math.floor(diff / oneHour);
+      const healAmount = 30 * hoursPassed;
 
-  const handleEquip = (args: string[]): string[] => {
-    if (!gameState.character) return ["Crie um personagem primeiro."];
-    const itemName = args.join(" ");
-    if (!itemName) return ["Uso: equip [nome do item]"];
-    const item = findInList(itemName, gameState.character.inventory);
-    if (!item) return [`Item '${itemName}' não encontrado no inventário.`];
-    if (item.type !== "Equipment")
-      return [`'${item.name}' não é um item equipável.`];
-    dispatch({ type: "EQUIP_ITEM", payload: item as Equipment });
-    return [`Você equipou ${item.name}.`];
-  };
-
-  const saveGameNow = (stateToSave: GameState) => {
-    try {
-      const { character } = stateToSave;
-      if (character) {
-        const dataToSave = {
-          ...stateToSave,
-          character: {
-            ...character,
-            skillCooldowns: Array.from(character.skillCooldowns.entries()),
-            monsterKills: Array.from(character.monsterKills.entries()),
-          },
-        };
-        localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(dataToSave));
-      }
-    } catch (err) {
-      console.error("Falha ao salvar jogo manualmente", err);
-    }
-  };
-
-  const processCombatTurn = (
-    action: "attack" | "run" | { skill: Skill } | { item: Item }
-  ): string[] => {
-    const { character, currentMonster } = gameState;
-    if (!character || !currentMonster) return ["Erro: Combate inválido."];
-
-    const charClone = cloneCharacter(character);
-    const monsterClone = {
-      ...currentMonster,
-      statusEffects: [...currentMonster.statusEffects],
-    };
-    const playerStats = charClone.getCombatStats();
-    const log: string[] = [];
-
-    const critChance = Math.min(0.75, playerStats.dex * 0.002);
-    const extraActions = Math.floor(playerStats.dex / 30);
-    const totalActions = 1 + extraActions;
-
-    const magicDmgMult = 1 + Math.floor(playerStats.int / 5) * 0.05;
-    const magicDurationBonus = Math.floor(playerStats.int / 10);
-
-    const isRepeatableAction =
-      action === "attack" || (typeof action === "object" && "skill" in action);
-    const loops = isRepeatableAction ? totalActions : 1;
-
-    for (let i = 0; i < loops; i++) {
-      if (monsterClone.currentHP <= 0) break;
-
-      if (i > 0) log.push(`> [VELOCIDADE] Sua DEX permite uma ação extra!`);
-
-      // 1. ATAQUE BÁSICO
-      if (action === "attack") {
-        const monsterStats = monsterClone.stats;
-        let playerDamage = Math.max(
-          1,
-          Math.floor(playerStats.str - monsterStats.dex / 2)
-        );
-
-        if (Math.random() < critChance) {
-          playerDamage = Math.floor(playerDamage * 2);
-          log.push(`> CRÍTICO! (Chance: ${(critChance * 100).toFixed(1)}%)`);
-        }
-
-        monsterClone.currentHP -= playerDamage;
-        log.push(
-          `> Você ataca o ${monsterClone.name} causando ${playerDamage} de dano.`
-        );
-      }
-
-      // 2. FUGIR (Não repete)
-      else if (action === "run") {
-        log.push("> Você tenta fugir...");
-        const playerLevel = charClone.level;
-        const monsterLevel = monsterClone.minLevel;
-        const levelDifference = monsterLevel - playerLevel;
-        const baseChance = 0.8;
-        const penaltyPerLevel = 0.1;
-        const dexBonus = playerStats.dex * 0.015;
-
-        const escapeChance = Math.max(
-          0.1,
-          Math.min(
-            0.95,
-            baseChance - levelDifference * penaltyPerLevel + dexBonus
-          )
-        );
-
-        if (Math.random() <= escapeChance) {
-          dispatch({ type: "RUN_AWAY" });
-          log.push("  ...e consegue escapar!");
-          return log; // Sai da função imediatamente
-        }
-        log.push("  ...mas o monstro bloqueia seu caminho!");
-      }
-
-      // 3. USAR ITEM (Não repete)
-      else if (typeof action === "object" && "item" in action) {
-        log.push(`> Você usa '${action.item.name}'!`);
-        if (action.item.type === "Potion") {
-          const potion = action.item as Potion;
-          if (potion.effect === "heal") {
-            const maxHP = charClone.getCombatStats().hp;
-            charClone.currentHP = Math.min(
-              maxHP,
-              charClone.currentHP + potion.value
-            );
-            log.push(`  Você recupera ${potion.value} HP.`);
-          }
-        }
-        // Remove do inventário
-        const index = charClone.inventory.findIndex(
-          (it) => it.id === action.item.id
-        );
-        if (index > -1) charClone.inventory.splice(index, 1);
-      }
-
-      // 4. USAR HABILIDADE/MAGIA
-      else if (typeof action === "object" && "skill" in action) {
-        const skill = action.skill;
-
-        // Cooldown só aplica na primeira execução
-        if (i === 0) {
-          log.push(`> Você usa '${skill.name}'!`);
-          charClone.skillCooldowns.set(skill.id, skill.cooldown);
-        } else {
-          log.push(`> Você usa '${skill.name}' NOVAMENTE!`);
-        }
-
-        const target = skill.target === "Self" ? charClone : monsterClone;
-
-        skill.effects.forEach((effect) => {
-          switch (effect.type) {
-            case "summon": {
-              if (i === 0) {
-                // Só invoca uma vez
-                if (gameState.activeSummons.length >= 3) {
-                  log.push("Limite de invocações atingido!");
-                } else {
-                  const summonTemplate = SUMMONS_DB[effect.summonId];
-                  const newSummon = {
-                    ...summonTemplate,
-                    id: `${summonTemplate.id}_${Date.now()}`,
-                  };
-                  dispatch({ type: "SUMMON_CREATURE", payload: newSummon });
-                  log.push(`Você invocou ${newSummon.name}!`);
-                }
-              }
-              break;
-            }
-            case "apply_status": {
-              let finalDuration = effect.duration;
-              // Bônus de INT para duração (apenas Magias)
-              if (skill.type === "Magic") {
-                finalDuration += magicDurationBonus;
-                if (magicDurationBonus > 0 && i === 0)
-                  log.push(`  (INT Bonus: +${magicDurationBonus} turnos)`);
-              }
-
-              const newEffect: StatusEffect = {
-                id: effect.effectId,
-                duration: finalDuration,
-                potency: effect.potency,
-              };
-
-              if ("charClass" in target) target.addStatusEffect(newEffect);
-              else {
-                // Lógica manual para monstro (pois não é classe Character)
-                target.statusEffects = target.statusEffects.filter(
-                  (e) => e.id !== newEffect.id
-                );
-                target.statusEffects.push(newEffect);
-              }
-              log.push(
-                `  O ${
-                  target === charClone ? "Você" : target.name
-                } é afetado por '${effect.effectId}'!`
-              );
-              break;
-            }
-            case "direct_damage": {
-              let dmg = effect.value;
-
-              // Scaling de INT (Magia)
-              if (skill.type === "Magic") {
-                const oldDmg = dmg;
-                dmg = Math.floor(dmg * magicDmgMult);
-                if (dmg > oldDmg && i === 0)
-                  log.push(`  (Amplificado por INT: ${oldDmg} -> ${dmg})`);
-              }
-
-              // Scaling de DEX (Crítico em tudo)
-              if (Math.random() < critChance) {
-                dmg = Math.floor(dmg * 2);
-                log.push(`  CRÍTICO!`);
-              }
-
-              monsterClone.currentHP -= dmg;
-              log.push(`  Causando ${dmg} de dano!`);
-              break;
-            }
-          }
-        });
-      }
-    } // Fim do Loop de Ações do Jogador
-
-    // --- TURNO DAS INVOCAÇÕES ---
-    if (gameState.activeSummons.length > 0 && monsterClone.currentHP > 0) {
-      let totalSummonDamage = 0;
-      gameState.activeSummons.forEach((summon) => {
-        totalSummonDamage += summon.stats.dmg;
-        log.push(
-          `> ${summon.name} ataca causando ${summon.stats.dmg} de dano.`
-        );
-      });
-      monsterClone.currentHP -= totalSummonDamage;
-      dispatch({ type: "SUMMON_ATTACK_MONSTER", payload: totalSummonDamage });
-    }
-
-    // --- PROCESSA STATUS (DoT) ---
-    monsterClone.statusEffects.forEach((effect) => {
-      if (effect.id === "poisoned" && effect.potency) {
-        monsterClone.currentHP -= effect.potency;
-        log.push(
-          `> O ${monsterClone.name} sofre ${effect.potency} de dano de veneno.`
-        );
-      }
-      if (effect.id === "burning" && effect.potency) {
-        monsterClone.currentHP -= effect.potency;
-        log.push(
-          `> O ${monsterClone.name} sofre ${effect.potency} de dano de fogo.`
-        );
-      }
-    });
-
-    // --- CHECA MORTE DO MONSTRO ---
-    if (monsterClone.currentHP <= 0) {
-      log.push(`> O ${monsterClone.name} foi derrotado!`);
-
-      const loot: Item[] = [];
-      let goldFound = 0;
-
-      monsterClone.lootTable.forEach((drop) => {
-        if (Math.random() < drop.dropChance) {
-          const baseItem = drop.item;
-          if (baseItem.type === "Currency") {
-            const amount = Math.max(
-              1,
-              Math.floor(monsterClone.minLevel * 2 * (1 + Math.random()))
-            );
-            goldFound += amount;
-            log.push(`  + Você encontrou ${amount}x Ouro!`);
-          } else {
-            loot.push(baseItem);
-            log.push(`  + Você encontrou ${baseItem.name}!`);
-          }
-        }
-      });
-
-      // IMPORTANTE: Aqui despachamos END_COMBAT, que também salva o jogo
-      const exp = monsterClone.expReward;
       dispatch({
-        type: "END_COMBAT",
-        payload: {
-          exp,
-          loot,
-          log,
-          gold: goldFound,
-          monsterName: monsterClone.name,
-        },
+        type: "PASSIVE_HEAL_TIME",
+        payload: { amount: healAmount, timestamp: now },
       });
-      return log;
-    }
 
-    // --- TURNO DO MONSTRO ---
-    const isParalyzed = monsterClone.statusEffects.find(
-      (e) => e.id === "paralyzed"
-    );
+      const maxHP = gameState.character.getCombatStats().hp;
+      const currentHP = gameState.character.currentHP;
 
-    if (isParalyzed) {
-      log.push(`> O ${monsterClone.name} está paralisado e não pode se mover!`);
-    } else {
-      // Escolhe Alvo (0 = Player, 1+ = Summons)
-      const targetsCount = 1 + gameState.activeSummons.length;
-      const targetIndex = Math.floor(Math.random() * targetsCount);
-      const monsterStats = monsterClone.stats;
+      if (healAmount > 0 && currentHP < maxHP) {
+        const msg = `✨ Descanso: Você recuperou ${healAmount} HP com o tempo.`;
+        setHistory((prev) => [...prev, msg]);
 
-      if (targetIndex === 0) {
-        // Ataca Jogador
-        const isInvisible = charClone.statusEffects.find(
-          (e) => e.id === "invisible"
+        notifyUser(
+          "QuestTerm - Descanso",
+          `Enquanto você estava fora, recuperou ${healAmount} HP!`
         );
-        if (isInvisible) {
-          log.push(
-            `> O ${monsterClone.name} ataca, mas você está invisível e ele erra!`
-          );
-        } else {
-          let monsterDamage = Math.max(
-            1,
-            Math.floor(monsterStats.str - playerStats.dex / 2)
-          );
-
-          const reduceDmg = charClone.statusEffects.find(
-            (e) => e.id === "damage_reduction"
-          );
-          if (reduceDmg && reduceDmg.potency) {
-            monsterDamage = Math.max(0, monsterDamage - reduceDmg.potency);
-            log.push(`  Sua defesa reduz o dano!`);
-          }
-
-          charClone.currentHP -= monsterDamage;
-          log.push(
-            `> O ${monsterClone.name} ataca VOCÊ causando ${monsterDamage} de dano.`
-          );
-        }
-      } else {
-        // Ataca Summon
-        const summonIndex = targetIndex - 1;
-        const targetSummon = gameState.activeSummons[summonIndex];
-        const damageToSummon = Math.max(1, monsterStats.str); // Dano puro nos summons
-
-        log.push(
-          `> O ${monsterClone.name} ataca ${targetSummon.name} causando ${damageToSummon} de dano.`
-        );
-
-        // Atualiza o estado dos summons via Action separada (pois activeSummons não está no monsterClone)
-        dispatch({
-          type: "MONSTER_ATTACK_SUMMON",
-          payload: { index: summonIndex, damage: damageToSummon },
-        });
-
-        if (targetSummon.stats.hp - damageToSummon <= 0) {
-          log.push(`  ${targetSummon.name} foi destruído!`);
-        }
       }
     }
 
-    // --- FINALIZAÇÃO DO TURNO ---
-    charClone.tickTurn(); // Reduz cooldowns e status do player
+    const lastStamina = gameState.character.lastStaminaRefresh || now;
+    const diffStamina = now - lastStamina;
 
-    // Reduz status do monstro manualmente
-    monsterClone.statusEffects = monsterClone.statusEffects.filter((e) => {
-      e.duration--;
-      return e.duration > 0;
-    });
-
-    // Check de Game Over
-    if (charClone.currentHP <= 0) {
-      log.push(`> *** VOCÊ MORREU ***`);
-      saveToMemorial(charClone);
-      dispatch({ type: "GAME_OVER" });
-      return log;
+    if (diffStamina >= oneHour && gameState.character.stamina < 3) {
+      dispatch({ type: "RESTORE_STAMINA" });
+      setHistory((prev) => [
+        ...prev,
+        `⚡ Energia: Sua stamina foi restaurada!`,
+      ]);
+      notifyUser(
+        "QuestTerm - Treino",
+        "Sua stamina está cheia! Você pode treinar novamente."
+      );
     }
-
-    // --- CRÍTICO: SALVA O ESTADO DO COMBATE ---
-    // Despacha a atualização para o React State
-    dispatch({
-      type: "UPDATE_COMBAT_TURN",
-      payload: { character: charClone, monster: monsterClone, log },
-    });
-
-    // Salva no LocalStorage IMEDIATAMENTE
-    // (Isso garante que se der F5 agora, a vida estará atualizada)
-    saveGameNow({
-      ...gameState,
-      character: charClone,
-      currentMonster: monsterClone,
-      activeSummons: gameState.activeSummons, // (Nota: summons atualizados via dispatch acima podem ter um delay de 1 frame no save manual aqui, mas é aceitável)
-    });
-
-    return log;
   };
+
+  const savedCheckPassiveEvents = useRef(checkPassiveEvents);
+
+  // 2. Toda vez que o componente renderiza, atualizamos a Ref
+  useEffect(() => {
+    savedCheckPassiveEvents.current = checkPassiveEvents;
+  });
+
+  useEffect(() => {
+    if (!gameState.character) return;
+
+    const interval = setInterval(() => {
+      savedCheckPassiveEvents.current(); // Chama a versão fresca
+    }, 60000); // 60 segundos
+
+    return () => clearInterval(interval);
+  }, [!!gameState.character]);
 
   const executeCommand = (command: string) => {
+    checkPassiveEvents();
+
+    if (
+      typeof window !== "undefined" &&
+      "Notification" in window &&
+      Notification.permission === "default"
+    ) {
+      Notification.requestPermission();
+    }
+
     const lowerCommand = command.toLowerCase().trim();
     const [cmd, ...args] = lowerCommand.split(" ");
     setHistory((prev) => [...prev, `> ${command}`]);
@@ -1337,29 +1422,59 @@ export function useTerminalLogic() {
 
     if (gameState.gameState === "AWAITING_CLASS") {
       let chosenClass;
+      const validClasses = availableClasses.filter(Boolean);
       const index = parseInt(lowerCommand, 10);
-      if (!isNaN(index) && index > 0 && index <= availableClasses.length) {
-        chosenClass = availableClasses[index - 1];
+
+      if (!isNaN(index) && index > 0 && index <= validClasses.length) {
+        chosenClass = validClasses[index - 1];
       } else {
-        chosenClass = availableClasses.find(
+        chosenClass = validClasses.find(
           (c) => c.name.toLowerCase() === lowerCommand
         );
       }
+
       if (chosenClass) {
         dispatch({
           type: "SET_CLASS",
           payload: chosenClass.name.toLowerCase(),
         });
         response = [
-          `Personagem criado!`,
-          `Você tem 3 pontos de atributo para gastar.`,
-          "Digite 'stats' ou 'up [stat] [qtd]'.",
+          `**************************************************`,
+          `* BEM-VINDO AO QUESTTERM!                *`,
+          `**************************************************`,
+          ``,
+          `Saudações, ${
+            gameState.tempName
+          }! Você renasceu como um ${chosenClass.name.toUpperCase()}.`,
+          ``,
+          `--- COMANDOS DE AVENTURA (RPG) ---`,
+          `  stats          - Ver atributos, XP, Ouro e Nível.`,
+          `  i | inventory  - Ver seus itens e equipamentos.`,
+          `  shop           - Acessar a loja (Renova a cada 1h).`,
+          `  train          - Treinar atributos (Gasta Stamina).`,
+          `  f | find       - Procurar monstros para lutar.`,
+          `  evolve         - Evoluir de classe (Níveis 5, 10, 15, 20).`,
+          ``,
+          `--- COMANDOS DE COMBATE ---`,
+          `  a | attack     - Ataque físico com sua arma.`,
+          `  cast [habilidade]   - Lança uma HABILIDADE (Bola de Fogo).`,
+          `  use [item]     - Usar poção ou item em batalha.`,
+          `  run            - Tentar fugir da batalha.`,
+          ``,
+          `Digite 'help' para ver a lista completa de comandos.`,
         ];
       } else {
         response = [
           `Classe '${command}' não encontrada.`,
           "Escolha pelo nome ou número:",
-          ...listClasses(),
+          ...validClasses.map(
+            (c, i) =>
+              `  ${i + 1}. ${c.name}: ${c.description} (HP:${
+                c.baseStats.hp
+              } STR:${c.baseStats.str} DEX:${c.baseStats.dex} INT:${
+                c.baseStats.int
+              })`
+          ),
         ];
       }
       setHistory((prev) => [...prev, ...response]);
@@ -1397,8 +1512,7 @@ export function useTerminalLogic() {
       else if (cmd === "cast") {
         const query = args.join(" ");
         const allSkills = gameState.character?.knownSkills || [];
-        const magicSkills = allSkills.filter((s) => s.type === "Magic");
-        const skill = findInList(query, magicSkills);
+        const skill = findInList(query, allSkills);
         if (skill) {
           const cooldownTurns = gameState.character?.skillCooldowns.get(
             skill.id
@@ -1420,23 +1534,8 @@ export function useTerminalLogic() {
         const item = findInList(query, potions);
         if (item) playerAction = { item };
         else {
-          const allSkills = gameState.character?.knownSkills || [];
-          const nonMagicSkills = allSkills.filter((s) => s.type !== "Magic");
-          const skill = findInList(query, nonMagicSkills);
-          if (skill) {
-            const cooldownTurns = gameState.character?.skillCooldowns.get(
-              skill.id
-            );
-            if (cooldownTurns) {
-              responseLog = [
-                `A habilidade '${skill.name}' está em recarga! (${cooldownTurns} turnos).`,
-              ];
-              stopExecution = true;
-            } else playerAction = { skill };
-          } else {
-            responseLog = [`'${query}' não é uma Poção ou Habilidade válida.`];
-            stopExecution = true;
-          }
+          responseLog = [`'${query}' não é uma Utilitaria válida.`];
+          stopExecution = true;
         }
       }
 
@@ -1504,22 +1603,23 @@ export function useTerminalLogic() {
         }
         const { character } = gameState;
         const now = Date.now();
-        const oneDay = 1000 * 60 * 60 * 24;
-        if (now - character.lastStaminaRefresh > oneDay) character.stamina = 3;
+        const oneHour = 1000 * 60 * 60;
 
         if (character.stamina <= 0) {
-          const timeLeft = oneDay - (now - character.lastStaminaRefresh);
-          const hours = Math.floor(timeLeft / (1000 * 60 * 60));
-          const minutes = Math.floor(
-            (timeLeft % (1000 * 60 * 60)) / (1000 * 60)
-          );
-          response = [`Você está exausto. Volte em ${hours}h ${minutes}m.`];
+          const nextRefresh = character.lastStaminaRefresh + oneHour;
+          const diff = nextRefresh - now;
+          const minutes = Math.ceil(diff / 60000);
+          response = [
+            `Você está exausto. Stamina regenera em ${minutes} minutos.`,
+          ];
           break;
         }
 
         const statToTrain = args[0]?.toLowerCase() as TrainableStat;
         if (!["str", "dex", "int"].includes(statToTrain)) {
-          response = ["Uso: train [str | dex | int]"];
+          response = [
+            `Uso: train [str | dex | int]. (Stamina: ${character.stamina}/3)`,
+          ];
           break;
         }
 
@@ -1530,7 +1630,7 @@ export function useTerminalLogic() {
         dispatch({ type: "USE_STAMINA" });
         response = [
           `Treino intenso! +${gain} ${statToTrain.toUpperCase()} e +${xp} XP.`,
-          `(Stamina: ${character.stamina - 1})`,
+          `(Stamina restante: ${character.stamina - 1})`,
         ];
         break;
       }

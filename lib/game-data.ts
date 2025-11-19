@@ -501,53 +501,112 @@ export const ITEMS_DB: { [key: string]: Potion | Equipment | Currency | Item } =
     },
   };
 
+// --- 4. ÁRVORE DE EVOLUÇÃO (Reestruturada: 5, 10, 15, 20, 25) ---
+export const CLASS_EVOLUTIONS: Record<
+  string,
+  { level: number; options: string[] }
+> = {
+  // ================== GUERREIRO ==================
+  Guerreiro: { level: 5, options: ["Bárbaro", "Defensor"] },
+
+  Bárbaro: { level: 10, options: ["Berserker"] },
+  Berserker: { level: 15, options: ["Destruidor"] },
+  Destruidor: { level: 20, options: ["Deus da Guerra"] },
+
+  Defensor: { level: 10, options: ["Cavaleiro"] },
+  Cavaleiro: { level: 15, options: ["Comandante"] },
+  Comandante: { level: 20, options: ["Bastião Divino"] },
+
+  // ================== MAGO ==================
+  Mago: { level: 5, options: ["Elementalista", "Ocultista"] },
+
+  Elementalista: { level: 10, options: ["Feiticeiro"] },
+  Feiticeiro: { level: 15, options: ["Arquimago"] },
+  Arquimago: { level: 20, options: ["Avatar Arcano"] },
+
+  Ocultista: { level: 10, options: ["Necromante"] },
+  Necromante: { level: 15, options: ["Lich"] },
+  Lich: { level: 20, options: ["Senhor da Morte"] },
+
+  // ================== LADINO -> CAÇADOR (Lv 25) ==================
+  Ladino: { level: 5, options: ["Assassino", "Ranger"] },
+
+  Assassino: { level: 10, options: ["Ninja"] },
+  Ninja: { level: 15, options: ["Sombra"] },
+  Sombra: { level: 20, options: ["Lâmina Fantasma"] },
+
+  Ranger: { level: 10, options: ["Rastreador"] },
+  Rastreador: { level: 15, options: ["Atirador de Elite"] },
+  "Atirador de Elite": { level: 20, options: ["Predador Apex"] },
+
+  // EVOLUÇÃO DE PRESTÍGIO (Nv 25)
+  "Predador Apex": { level: 25, options: ["Caçador Lendário"] }, // Antigo 'Caçador'
+
+  // ================== DRUIDA ==================
+  Druida: { level: 5, options: ["Metamorfo", "Xamã"] },
+
+  Metamorfo: { level: 10, options: ["Fera"] },
+  Fera: { level: 15, options: ["Behemoth"] },
+  Behemoth: { level: 20, options: ["Avatar Selvagem"] },
+
+  Xamã: { level: 10, options: ["Invocador Natural"] },
+  "Invocador Natural": { level: 15, options: ["Sábio"] },
+  Sábio: { level: 20, options: ["Guardião de Gaia"] },
+
+  // ================== CLÉRIGO -> PALADINO (Lv 25) ==================
+  Clérigo: { level: 5, options: ["Sacerdote", "Inquisidor"] },
+
+  Sacerdote: { level: 10, options: ["Sumo Sacerdote"] },
+  "Sumo Sacerdote": { level: 15, options: ["Profeta"] },
+  Profeta: { level: 20, options: ["Santo Vivo"] },
+
+  Inquisidor: { level: 10, options: ["Exorcista"] }, // Mudou de Paladino branch
+  Exorcista: { level: 15, options: ["Cruzado"] }, // Mudou de Paladino branch
+  Cruzado: { level: 20, options: ["Mão de Deus"] },
+
+  // EVOLUÇÃO DE PRESTÍGIO (Nv 25)
+  "Mão de Deus": { level: 25, options: ["Paladino Divino"] }, // Antigo 'Paladino'
+};
+
+// --- 5. BANCO DE DADOS DE CLASSES (Atualizado) ---
 export const CLASSES_DB: Record<string, CharacterClass> = {
-  // =================================================================
-  // GUERREIRO (Força / Vida / Defesa)
-  // =================================================================
+  // === GUERREIRO ===
   Guerreiro: {
     name: "Guerreiro",
     description: "Lutador equilibrado.",
     baseStats: { hp: 25, str: 4, dex: 2, int: 1 },
     levelUpGains: { hp: 6, str: 2, dex: 1, int: 0 },
   },
-  // Ramo A: Dano Bruto
+  // ... (Subclasses de Guerreiro mantidas) ...
   Bárbaro: {
     name: "Bárbaro",
-    description: "Foca em dano bruto e risco.",
+    description: "Foca em dano bruto.",
     baseStats: { hp: 30, str: 6, dex: 2, int: 0 },
     levelUpGains: { hp: 8, str: 3, dex: 1, int: 0 },
   },
-  Berserker: {
-    name: "Berserker",
-    description: "Fúria assassina incessante.",
-    baseStats: { hp: 40, str: 9, dex: 3, int: 0 },
-    levelUpGains: { hp: 10, str: 4, dex: 1, int: 0 },
-  },
-  Destruidor: {
-    name: "Destruidor",
-    description: "Esmaga exércitos sozinho.",
-    baseStats: { hp: 60, str: 14, dex: 4, int: 0 },
-    levelUpGains: { hp: 12, str: 5, dex: 2, int: 0 },
-  },
-  "Deus da Guerra": {
-    name: "Deus da Guerra",
-    description: "A encarnação da batalha.",
-    baseStats: { hp: 100, str: 25, dex: 5, int: 0 },
-    levelUpGains: { hp: 20, str: 8, dex: 3, int: 0 },
-  },
-  // Ramo B: Defesa/Tank
   Defensor: {
     name: "Defensor",
-    description: "Especialista em escudos.",
+    description: "Foca em defesa.",
     baseStats: { hp: 35, str: 4, dex: 1, int: 1 },
     levelUpGains: { hp: 10, str: 2, dex: 0, int: 0 },
   },
+  Berserker: {
+    name: "Berserker",
+    description: "Fúria assassina.",
+    baseStats: { hp: 40, str: 8, dex: 3, int: 0 },
+    levelUpGains: { hp: 10, str: 4, dex: 1, int: 0 },
+  },
   Cavaleiro: {
     name: "Cavaleiro",
-    description: "Tanque de elite tático.",
+    description: "Tanque de elite.",
     baseStats: { hp: 50, str: 6, dex: 1, int: 2 },
     levelUpGains: { hp: 12, str: 2, dex: 1, int: 1 },
+  },
+  Destruidor: {
+    name: "Destruidor",
+    description: "Esmaga tudo.",
+    baseStats: { hp: 60, str: 12, dex: 4, int: 0 },
+    levelUpGains: { hp: 12, str: 5, dex: 2, int: 0 },
   },
   Comandante: {
     name: "Comandante",
@@ -555,53 +614,44 @@ export const CLASSES_DB: Record<string, CharacterClass> = {
     baseStats: { hp: 80, str: 8, dex: 2, int: 4 },
     levelUpGains: { hp: 15, str: 3, dex: 1, int: 2 },
   },
+  "Deus da Guerra": {
+    name: "Deus da Guerra",
+    description: "A encarnação da batalha.",
+    baseStats: { hp: 100, str: 25, dex: 5, int: 0 },
+    levelUpGains: { hp: 20, str: 8, dex: 3, int: 0 },
+  },
   "Bastião Divino": {
     name: "Bastião Divino",
-    description: "Imortal e inabalável.",
+    description: "Imortal.",
     baseStats: { hp: 180, str: 12, dex: 0, int: 5 },
     levelUpGains: { hp: 25, str: 4, dex: 0, int: 3 },
   },
 
-  // =================================================================
-  // MAGO (Inteligência / Área / Invocação)
-  // =================================================================
+  // === MAGO ===
   Mago: {
     name: "Mago",
-    description: "Estudioso das artes arcanas.",
+    description: "Usuário de magia.",
     baseStats: { hp: 15, str: 1, dex: 2, int: 5 },
     levelUpGains: { hp: 3, str: 0, dex: 1, int: 3 },
   },
-  // Ramo A: Dano Mágico Puro
+  // ... (Subclasses de Mago mantidas) ...
   Elementalista: {
     name: "Elementalista",
-    description: "Mestre do Fogo e Gelo.",
+    description: "Mestre dos elementos.",
     baseStats: { hp: 18, str: 0, dex: 2, int: 8 },
     levelUpGains: { hp: 4, str: 0, dex: 1, int: 4 },
   },
-  Feiticeiro: {
-    name: "Feiticeiro",
-    description: "Poder arcano instável.",
-    baseStats: { hp: 22, str: 0, dex: 3, int: 12 },
-    levelUpGains: { hp: 4, str: 0, dex: 1, int: 5 },
-  },
-  Arquimago: {
-    name: "Arquimago",
-    description: "Sábio supremo da magia.",
-    baseStats: { hp: 30, str: 0, dex: 4, int: 18 },
-    levelUpGains: { hp: 5, str: 0, dex: 2, int: 6 },
-  },
-  "Avatar Arcano": {
-    name: "Avatar Arcano",
-    description: "Magia pura em forma física.",
-    baseStats: { hp: 50, str: 0, dex: 5, int: 35 },
-    levelUpGains: { hp: 6, str: 0, dex: 3, int: 10 },
-  },
-  // Ramo B: Necromancia/Debuffs
   Ocultista: {
     name: "Ocultista",
-    description: "Magia negra e maldições.",
+    description: "Magia negra.",
     baseStats: { hp: 20, str: 1, dex: 2, int: 7 },
     levelUpGains: { hp: 5, str: 0, dex: 1, int: 3 },
+  },
+  Feiticeiro: {
+    name: "Feiticeiro",
+    description: "Poder arcano.",
+    baseStats: { hp: 22, str: 0, dex: 3, int: 12 },
+    levelUpGains: { hp: 4, str: 0, dex: 1, int: 5 },
   },
   Necromante: {
     name: "Necromante",
@@ -609,65 +659,67 @@ export const CLASSES_DB: Record<string, CharacterClass> = {
     baseStats: { hp: 25, str: 2, dex: 2, int: 10 },
     levelUpGains: { hp: 6, str: 1, dex: 1, int: 4 },
   },
+  Arquimago: {
+    name: "Arquimago",
+    description: "Sábio supremo.",
+    baseStats: { hp: 30, str: 0, dex: 4, int: 18 },
+    levelUpGains: { hp: 5, str: 0, dex: 2, int: 6 },
+  },
   Lich: {
     name: "Lich",
     description: "Venceu a morte.",
     baseStats: { hp: 45, str: 3, dex: 1, int: 15 },
     levelUpGains: { hp: 8, str: 1, dex: 1, int: 5 },
   },
+  "Avatar Arcano": {
+    name: "Avatar Arcano",
+    description: "Magia pura.",
+    baseStats: { hp: 50, str: 0, dex: 5, int: 35 },
+    levelUpGains: { hp: 6, str: 0, dex: 3, int: 10 },
+  },
   "Senhor da Morte": {
     name: "Senhor da Morte",
-    description: "Comanda legiões de almas.",
+    description: "Comanda almas.",
     baseStats: { hp: 70, str: 5, dex: 2, int: 25 },
     levelUpGains: { hp: 10, str: 2, dex: 2, int: 8 },
   },
 
-  // =================================================================
-  // LADINO (Destreza / Crítico / Furtividade)
-  // =================================================================
+  // === LADINO ===
   Ladino: {
     name: "Ladino",
-    description: "Rápido, astuto e letal.",
+    description: "Rápido e letal.",
     baseStats: { hp: 18, str: 2, dex: 5, int: 2 },
     levelUpGains: { hp: 5, str: 1, dex: 3, int: 1 },
   },
-  // Ramo A: Assassinato/Melee
   Assassino: {
     name: "Assassino",
-    description: "Dano crítico e veneno.",
+    description: "Dano crítico.",
     baseStats: { hp: 20, str: 3, dex: 8, int: 1 },
     levelUpGains: { hp: 5, str: 2, dex: 4, int: 0 },
   },
-  Ninja: {
-    name: "Ninja",
-    description: "Mestre das sombras e ilusão.",
-    baseStats: { hp: 25, str: 4, dex: 12, int: 2 },
-    levelUpGains: { hp: 6, str: 2, dex: 5, int: 1 },
-  },
-  Sombra: {
-    name: "Sombra",
-    description: "Ninguém te vê chegar.",
-    baseStats: { hp: 30, str: 5, dex: 16, int: 4 },
-    levelUpGains: { hp: 6, str: 2, dex: 6, int: 2 },
-  },
-  "Lâmina Fantasma": {
-    name: "Lâmina Fantasma",
-    description: "A morte invisível.",
-    baseStats: { hp: 50, str: 8, dex: 30, int: 5 },
-    levelUpGains: { hp: 8, str: 3, dex: 8, int: 2 },
-  },
-  // Ramo B: Ranged/Arco
   Ranger: {
     name: "Ranger",
-    description: "Combate preciso à distância.",
+    description: "Combate à distância.",
     baseStats: { hp: 22, str: 2, dex: 7, int: 2 },
     levelUpGains: { hp: 6, str: 1, dex: 3, int: 1 },
   },
-  Caçador: {
-    name: "Caçador",
-    description: "Usa armadilhas e pets.",
+  Ninja: {
+    name: "Ninja",
+    description: "Mestre das sombras.",
+    baseStats: { hp: 25, str: 4, dex: 12, int: 2 },
+    levelUpGains: { hp: 6, str: 2, dex: 5, int: 1 },
+  },
+  Rastreador: {
+    name: "Rastreador",
+    description: "Rastreia presas.",
     baseStats: { hp: 28, str: 3, dex: 10, int: 3 },
     levelUpGains: { hp: 7, str: 2, dex: 4, int: 1 },
+  },
+  Sombra: {
+    name: "Sombra",
+    description: "Ninguém te vê.",
+    baseStats: { hp: 30, str: 5, dex: 16, int: 4 },
+    levelUpGains: { hp: 6, str: 2, dex: 6, int: 2 },
   },
   "Atirador de Elite": {
     name: "Atirador de Elite",
@@ -675,65 +727,75 @@ export const CLASSES_DB: Record<string, CharacterClass> = {
     baseStats: { hp: 32, str: 2, dex: 18, int: 2 },
     levelUpGains: { hp: 6, str: 1, dex: 6, int: 1 },
   },
+  "Lâmina Fantasma": {
+    name: "Lâmina Fantasma",
+    description: "Morte invisível.",
+    baseStats: { hp: 50, str: 8, dex: 30, int: 5 },
+    levelUpGains: { hp: 8, str: 3, dex: 8, int: 2 },
+  },
   "Predador Apex": {
     name: "Predador Apex",
-    description: "O topo da cadeia alimentar.",
+    description: "Topo da cadeia.",
     baseStats: { hp: 60, str: 5, dex: 25, int: 4 },
     levelUpGains: { hp: 10, str: 3, dex: 7, int: 2 },
   },
 
-  // =================================================================
-  // DRUIDA (Híbrido / Natureza / Metamorfose)
-  // =================================================================
+  // Nova Classe de Prestígio (Lv 25)
+  "Caçador Lendário": {
+    name: "Caçador Lendário",
+    description: "O mestre da caçada suprema.",
+    baseStats: { hp: 150, str: 15, dex: 50, int: 10 },
+    levelUpGains: { hp: 15, str: 5, dex: 10, int: 2 },
+  },
+
+  // === DRUIDA ===
   Druida: {
     name: "Druida",
-    description: "Protetor do equilíbrio.",
+    description: "Protetor da natureza.",
     baseStats: { hp: 20, str: 3, dex: 3, int: 3 },
     levelUpGains: { hp: 5, str: 1, dex: 1, int: 1 },
   },
-  // Ramo A: Metamorfose/Tank
   Metamorfo: {
     name: "Metamorfo",
-    description: "Transforma-se em feras.",
+    description: "Vira fera.",
     baseStats: { hp: 28, str: 6, dex: 4, int: 1 },
     levelUpGains: { hp: 8, str: 3, dex: 2, int: 0 },
   },
-  Fera: {
-    name: "Fera",
-    description: "Força animal bruta.",
-    baseStats: { hp: 40, str: 10, dex: 6, int: 0 },
-    levelUpGains: { hp: 10, str: 4, dex: 2, int: 0 },
-  },
-  Behemoth: {
-    name: "Behemoth",
-    description: "Tanque natural gigante.",
-    baseStats: { hp: 90, str: 15, dex: 5, int: 0 },
-    levelUpGains: { hp: 15, str: 5, dex: 1, int: 0 },
-  },
-  "Avatar Selvagem": {
-    name: "Avatar Selvagem",
-    description: "A fúria da floresta.",
-    baseStats: { hp: 160, str: 25, dex: 10, int: 5 },
-    levelUpGains: { hp: 20, str: 6, dex: 3, int: 1 },
-  },
-  // Ramo B: Invocação/Magia Natural
   Xamã: {
     name: "Xamã",
     description: "Totems e espíritos.",
     baseStats: { hp: 22, str: 2, dex: 2, int: 6 },
     levelUpGains: { hp: 5, str: 1, dex: 1, int: 3 },
   },
+  Fera: {
+    name: "Fera",
+    description: "Força animal.",
+    baseStats: { hp: 40, str: 10, dex: 6, int: 0 },
+    levelUpGains: { hp: 10, str: 4, dex: 2, int: 0 },
+  },
   "Invocador Natural": {
     name: "Invocador Natural",
-    description: "Chama aliados da mata.",
+    description: "Chama aliados.",
     baseStats: { hp: 25, str: 2, dex: 3, int: 10 },
     levelUpGains: { hp: 6, str: 0, dex: 1, int: 4 },
   },
+  Behemoth: {
+    name: "Behemoth",
+    description: "Tanque natural.",
+    baseStats: { hp: 90, str: 15, dex: 5, int: 0 },
+    levelUpGains: { hp: 15, str: 5, dex: 1, int: 0 },
+  },
   Sábio: {
     name: "Sábio",
-    description: "Magia da natureza antiga.",
+    description: "Magia antiga.",
     baseStats: { hp: 35, str: 3, dex: 4, int: 15 },
     levelUpGains: { hp: 7, str: 1, dex: 1, int: 5 },
+  },
+  "Avatar Selvagem": {
+    name: "Avatar Selvagem",
+    description: "Fúria da floresta.",
+    baseStats: { hp: 160, str: 25, dex: 10, int: 5 },
+    levelUpGains: { hp: 20, str: 6, dex: 3, int: 1 },
   },
   "Guardião de Gaia": {
     name: "Guardião de Gaia",
@@ -742,41 +804,38 @@ export const CLASSES_DB: Record<string, CharacterClass> = {
     levelUpGains: { hp: 12, str: 2, dex: 2, int: 8 },
   },
 
-  // =================================================================
-  // PALADINO (Força / Inteligência / Sagrado)
-  // =================================================================
-  Paladino: {
-    name: "Paladino",
-    description: "Guerreiro da luz.",
-    baseStats: { hp: 24, str: 4, dex: 1, int: 3 },
+  // === CLÉRIGO ===
+  Clérigo: {
+    name: "Clérigo",
+    description: "Guerreiro sagrado.",
+    baseStats: { hp: 22, str: 4, dex: 1, int: 4 },
     levelUpGains: { hp: 7, str: 2, dex: 0, int: 2 },
   },
-  // Ramo A: Defesa/Suporte
-  Guardião: {
-    name: "Guardião",
-    description: "A muralha impenetrável.",
-    baseStats: { hp: 35, str: 5, dex: 1, int: 3 },
-    levelUpGains: { hp: 10, str: 1, dex: 0, int: 1 },
+  Sacerdote: {
+    name: "Sacerdote",
+    description: "Cura e suporte.",
+    baseStats: { hp: 20, str: 2, dex: 2, int: 6 },
+    levelUpGains: { hp: 6, str: 1, dex: 1, int: 4 },
   },
-  Templário: {
-    name: "Templário",
-    description: "Líder sagrado de batalha.",
-    baseStats: { hp: 60, str: 8, dex: 2, int: 5 },
-    levelUpGains: { hp: 12, str: 3, dex: 1, int: 2 },
+  "Sumo Sacerdote": {
+    name: "Sumo Sacerdote",
+    description: "Voz dos deuses.",
+    baseStats: { hp: 22, str: 2, dex: 3, int: 9 },
+    levelUpGains: { hp: 7, str: 1, dex: 2, int: 6 },
   },
-  "Cruzado Divino": {
-    name: "Cruzado Divino",
-    description: "A espada da igreja.",
-    baseStats: { hp: 90, str: 12, dex: 3, int: 8 },
-    levelUpGains: { hp: 15, str: 4, dex: 1, int: 3 },
+  Profeta: {
+    name: "Profeta",
+    description: "Vê o futuro.",
+    baseStats: { hp: 30, str: 3, dex: 4, int: 15 },
+    levelUpGains: { hp: 8, str: 1, dex: 1, int: 8 },
   },
-  "Avatar da Luz": {
-    name: "Avatar da Luz",
-    description: "Luz pura em forma física.",
-    baseStats: { hp: 180, str: 20, dex: 5, int: 15 },
-    levelUpGains: { hp: 20, str: 6, dex: 2, int: 5 },
+  "Santo Vivo": {
+    name: "Santo Vivo",
+    description: "Milagre vivo.",
+    baseStats: { hp: 50, str: 5, dex: 5, int: 30 },
+    levelUpGains: { hp: 10, str: 2, dex: 2, int: 10 },
   },
-  // Ramo B: Dano Sagrado (Inquisidor)
+  // Ramificação de Combate (Ex-Paladino)
   Inquisidor: {
     name: "Inquisidor",
     description: "Queima hereges.",
@@ -789,126 +848,35 @@ export const CLASSES_DB: Record<string, CharacterClass> = {
     baseStats: { hp: 40, str: 6, dex: 4, int: 10 },
     levelUpGains: { hp: 7, str: 2, dex: 1, int: 4 },
   },
-  "Caçador de Demônios": {
-    name: "Caçador de Demônios",
-    description: "O terror das trevas.",
-    baseStats: { hp: 65, str: 10, dex: 6, int: 15 },
-    levelUpGains: { hp: 9, str: 3, dex: 2, int: 5 },
-  },
+  Cruzado: {
+    name: "Cruzado",
+    description: "Espada da justiça.",
+    baseStats: { hp: 60, str: 12, dex: 3, int: 8 },
+    levelUpGains: { hp: 10, str: 4, dex: 1, int: 3 },
+  }, // Antigo Cruzado Divino fundido
   "Mão de Deus": {
     name: "Mão de Deus",
-    description: "O julgamento final.",
+    description: "Julgamento final.",
     baseStats: { hp: 110, str: 15, dex: 10, int: 30 },
     levelUpGains: { hp: 12, str: 5, dex: 4, int: 8 },
   },
+
+  // Nova Classe de Prestígio (Lv 25)
+  "Paladino Divino": {
+    name: "Paladino Divino",
+    description: "A luz encarnada. Invencível.",
+    baseStats: { hp: 250, str: 30, dex: 10, int: 30 },
+    levelUpGains: { hp: 20, str: 8, dex: 2, int: 8 },
+  },
 };
 
-// --- 4. ÁRVORE DE EVOLUÇÃO COMPLETA (Níveis 5, 10, 15, 20) ---
-export const CLASS_EVOLUTIONS: Record<
-  string,
-  { level: number; options: string[] }
-> = {
-  // ================== GUERREIRO ==================
-  Guerreiro: { level: 5, options: ["Bárbaro", "Defensor"] },
-
-  // Caminho do Dano
-  Bárbaro: { level: 10, options: ["Berserker"] },
-  Berserker: { level: 15, options: ["Destruidor"] },
-  Destruidor: { level: 20, options: ["Deus da Guerra"] },
-
-  // Caminho da Defesa
-  Defensor: { level: 10, options: ["Cavaleiro"] },
-  Cavaleiro: { level: 15, options: ["Comandante"] }, // Renomeado de Templário (conflito)
-  Comandante: { level: 20, options: ["Bastião Divino"] },
-
-  // ================== MAGO ==================
-  Mago: { level: 5, options: ["Elementalista", "Ocultista"] },
-
-  // Caminho Elemental
-  Elementalista: { level: 10, options: ["Feiticeiro"] },
-  Feiticeiro: { level: 15, options: ["Arquimago"] },
-  Arquimago: { level: 20, options: ["Avatar Arcano"] },
-
-  // Caminho das Trevas
-  Ocultista: { level: 10, options: ["Necromante"] },
-  Necromante: { level: 15, options: ["Lich"] },
-  Lich: { level: 20, options: ["Senhor da Morte"] },
-
-  // ================== LADINO ==================
-  Ladino: { level: 5, options: ["Assassino", "Ranger"] },
-
-  // Caminho do Assassinato
-  Assassino: { level: 10, options: ["Ninja"] },
-  Ninja: { level: 15, options: ["Sombra"] },
-  Sombra: { level: 20, options: ["Lâmina Fantasma"] },
-
-  // Caminho do Tiro
-  Ranger: { level: 10, options: ["Rastreador"] }, // Renomeado de Caçador (conflito)
-  Rastreador: { level: 15, options: ["Atirador de Elite"] },
-  "Atirador de Elite": { level: 20, options: ["Predador Apex"] },
-
-  // ================== DRUIDA ==================
-  Druida: { level: 5, options: ["Metamorfo", "Xamã"] },
-
-  // Caminho da Fera
-  Metamorfo: { level: 10, options: ["Fera"] },
-  Fera: { level: 15, options: ["Behemoth"] },
-  Behemoth: { level: 20, options: ["Avatar Selvagem"] },
-
-  // Caminho dos Espíritos
-  Xamã: { level: 10, options: ["Invocador Natural"] },
-  "Invocador Natural": { level: 15, options: ["Sábio"] },
-  Sábio: { level: 20, options: ["Guardião de Gaia"] },
-
-  // ================== CLÉRIGO ==================
-  Clérigo: { level: 5, options: ["Sacerdote", "Paladino"] }, // Paladino aqui é subclasse/caminho híbrido se não for base
-  // Nota: Se Paladino é classe base também, aqui ele funciona como uma "especialização de combate" do Clérigo.
-
-  // Caminho do Suporte
-  Sacerdote: { level: 10, options: ["Sumo Sacerdote"] },
-  "Sumo Sacerdote": { level: 15, options: ["Profeta"] },
-  Profeta: { level: 20, options: ["Santo Vivo"] },
-
-  // Caminho do Combate Sagrado (Derivado de Clérigo)
-  // Se o jogador escolheu Paladino como base, ele usa a árvore abaixo.
-  // Se veio de Clérigo -> Paladino, ele segue aqui:
-  // (Para simplificar, vamos manter nomes únicos ou fundir os caminhos)
-
-  // ================== PALADINO (Classe Base) ==================
-  Paladino: { level: 5, options: ["Guardião", "Inquisidor"] },
-
-  // Caminho da Proteção
-  Guardião: { level: 10, options: ["Templário"] },
-  Templário: { level: 15, options: ["Cruzado Divino"] },
-  "Cruzado Divino": { level: 20, options: ["Avatar da Luz"] },
-
-  // Caminho da Punição
-  Inquisidor: { level: 10, options: ["Exorcista"] },
-  Exorcista: { level: 15, options: ["Caçador de Demônios"] },
-  "Caçador de Demônios": { level: 20, options: ["Mão de Deus"] },
-
-  // ================== CAÇADOR (Classe Base) ==================
-  Caçador: { level: 5, options: ["Hunter", "Sniper"] }, // Usando termos em inglês ou renomear para "Caçador Furtivo" / "Franco-Atirador"
-
-  // Caminho dos Pets
-  Hunter: { level: 10, options: ["Beastmaster"] },
-  Beastmaster: { level: 15, options: ["Senhor das Feras"] }, // Cuidado com colisão com Druida, se houver
-  "Senhor das Feras": { level: 20, options: ["Rei da Selva"] },
-
-  // Caminho do Tiro Longo
-  Sniper: { level: 10, options: ["Sharpshooter"] },
-  Sharpshooter: { level: 15, options: ["Olho Mortal"] },
-  "Olho Mortal": { level: 20, options: ["Morte Silenciosa"] },
-};
-
+// --- 7. CLASSES INICIAIS (Filtradas - 4 Bases) ---
 export const availableClasses: CharacterClass[] = [
   CLASSES_DB["Guerreiro"],
-  CLASSES_DB["Ladino"],
   CLASSES_DB["Mago"],
-  CLASSES_DB["Clérigo"],
+  CLASSES_DB["Ladino"],
+  CLASSES_DB["Clérigo"], // Clérigo absorveu o Paladino inicial
   CLASSES_DB["Druida"],
-  CLASSES_DB["Caçador"],
-  CLASSES_DB["Paladino"],
 ];
 
 // --- 3. BANCO DE DADOS DE HABILIDADES (Recheado) ---

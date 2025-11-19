@@ -48,6 +48,7 @@ export interface Currency extends Item {
 
 export type SkillType = "Magic" | "Skill";
 export type SkillTarget = "Self" | "Enemy";
+
 export type StatusEffectId =
   | "poisoned"
   | "damage_buff"
@@ -171,6 +172,8 @@ export class Character {
   stamina: number = 3;
   lastStaminaRefresh: number = 0;
 
+  lastPassiveHeal: number = 0;
+
   attributePoints: number = 0;
 
   constructor(name: string, charClass: CharacterClass) {
@@ -183,6 +186,7 @@ export class Character {
     this.equipment = { weapon: null, armor: null };
     this.currentHP = this.getCombatStats().hp;
     this.lastStaminaRefresh = Date.now();
+    this.lastPassiveHeal = Date.now();
   }
 
   getCombatStats(): Stats {
@@ -203,19 +207,6 @@ export class Character {
         combatStats[stat] = (combatStats[stat] || 0) + (armor.stats[stat] || 0);
       }
     }
-
-    this.statusEffects.forEach((effect) => {
-      if (effect.id === "damage_buff") {
-        combatStats.str += effect.potency || 0;
-      }
-      if (effect.id === "dexterity_buff") {
-        combatStats.dex += effect.potency || 0;
-      }
-      if (effect.id === "intelligence_buff") {
-        combatStats.int += effect.potency || 0;
-      }
-    });
-
     return combatStats;
   }
 
@@ -241,7 +232,6 @@ export class Character {
     this.baseStats.int += gains.int;
 
     this.attributePoints += 3;
-
     this.currentHP = this.getCombatStats().hp;
   }
 
