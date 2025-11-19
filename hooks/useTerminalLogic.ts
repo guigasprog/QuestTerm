@@ -1177,22 +1177,54 @@ export function useTerminalLogic() {
 
   const handleFindBattle = (): string[] => {
     if (!gameState.character) return ["Crie um personagem primeiro."];
+
     const charLevel = gameState.character.level;
-    const availableSpawns = MONSTERS_DB.filter((m) => m.minLevel <= charLevel);
+
+    const availableSpawns = MONSTERS_DB.filter(
+      (m) => m.minLevel <= charLevel + 2
+    );
+
+    if (availableSpawns.length === 0)
+      return ["Nenhum monstro encontrado nesta região..."];
+
     const weightedSpawns = availableSpawns.flatMap((m) =>
       Array(m.minLevel).fill(m)
     );
-    if (weightedSpawns.length === 0) return ["Nenhum monstro encontrado..."];
     const monsterTemplate =
       weightedSpawns[Math.floor(Math.random() * weightedSpawns.length)];
+
+    const levelDiff = Math.max(0, charLevel - monsterTemplate.minLevel);
+    const scaleFactor = 1 + levelDiff * 0.3;
+
+    const scaledHP = Math.floor(monsterTemplate.stats.hp * scaleFactor);
+    const variance = 0.15;
+    const minHP = Math.floor(scaledHP * (1 - variance));
+    const maxHP = Math.ceil(scaledHP * (1 + variance));
+    const finalHP = Math.floor(Math.random() * (maxHP - minHP + 1)) + minHP;
+
+    const finalStr = Math.floor(monsterTemplate.stats.str * scaleFactor);
+
+    const finalExp = Math.floor(monsterTemplate.expReward * scaleFactor);
+
     const combatMonster: CombatMonster = {
       ...monsterTemplate,
-      currentHP: monsterTemplate.stats.hp,
+      stats: {
+        ...monsterTemplate.stats,
+        hp: finalHP,
+        str: finalStr,
+        dex: Math.floor(monsterTemplate.stats.dex * (1 + levelDiff * 0.1)),
+        int: Math.floor(monsterTemplate.stats.int * (1 + levelDiff * 0.1)),
+      },
+      currentHP: finalHP,
+      expReward: finalExp,
       statusEffects: [],
     };
+
     dispatch({ type: "FIND_BATTLE", payload: combatMonster });
+
     return [
-      `!!! Um ${combatMonster.name} selvagem (Nível ${combatMonster.minLevel}) aparece !!!`,
+      `!!! Um ${combatMonster.name} selvagem (Escalado para Nv ${charLevel}) aparece !!!`,
+      `  HP Estimado: ~${scaledHP} | Força: ${finalStr}`,
       "Digite 'attack', 'use', 'cast' ou 'run'.",
     ];
   };
