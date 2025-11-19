@@ -13,6 +13,7 @@ import {
   MemorialEntry,
   Summon,
   GitHubCommit,
+  EquipmentSlot,
 } from "@/lib/rpg.models";
 import {
   CLASSES_DB,
@@ -69,6 +70,7 @@ type GameAction =
   | { type: "RUN_AWAY" }
   | { type: "GAME_OVER" }
   | { type: "EQUIP_ITEM"; payload: Equipment }
+  | { type: "UNEQUIP_ITEM"; payload: EquipmentSlot }
   | { type: "ADD_ITEM"; payload: Item }
   | { type: "PLAYER_HEAL"; payload: number }
   | { type: "REMOVE_ITEM_BY_ID"; payload: string }
@@ -174,6 +176,26 @@ function gameReducer(state: GameState, action: GameAction): GameState {
           tempName: "",
           character: newChar,
         };
+      case "UNEQUIP_ITEM": {
+        if (!state.character) return state;
+        const newChar = cloneCharacter(state.character);
+        const slot = action.payload;
+
+        const itemToUnequip = newChar.equipment[slot];
+
+        if (itemToUnequip) {
+          newChar.inventory.push(itemToUnequip);
+
+          newChar.equipment[slot] = null;
+
+          const newMaxHP = newChar.getCombatStats().hp;
+          if (newChar.currentHP > newMaxHP) {
+            newChar.currentHP = newMaxHP;
+          }
+        }
+
+        return { ...state, character: newChar };
+      }
       case "LOAD_CHARACTER":
         return { ...state, character: action.payload };
       case "RESTORE_GAME_STATE":
@@ -1096,6 +1118,54 @@ export function useTerminalLogic() {
     return log;
   };
 
+  const handleUnequip = (args: string[]): string[] => {
+    if (!gameState.character) return ["Crie um personagem primeiro."];
+
+    const query = args.join(" ").toLowerCase().trim();
+    if (!query)
+      return ["Uso: unequip [1 (arma) | 2 (armadura) | nome do item]"];
+
+    const { equipment } = gameState.character;
+    let slotToUnequip: EquipmentSlot | null = null;
+
+    if (query === "1") {
+      slotToUnequip = "weapon";
+    } else if (query === "2") {
+      slotToUnequip = "armor";
+    } else if (query === "weapon" || query === "arma") {
+      slotToUnequip = "weapon";
+    } else if (query === "armor" || query === "armadura") {
+      slotToUnequip = "armor";
+    } else {
+      if (
+        equipment.weapon &&
+        equipment.weapon.name.toLowerCase().includes(query)
+      ) {
+        slotToUnequip = "weapon";
+      } else if (
+        equipment.armor &&
+        equipment.armor.name.toLowerCase().includes(query)
+      ) {
+        slotToUnequip = "armor";
+      }
+    }
+
+    if (!slotToUnequip) {
+      return [
+        `Não encontrei nenhum item equipado correspondente a '${query}'.`,
+      ];
+    }
+
+    const item = equipment[slotToUnequip];
+    if (!item) {
+      const slotName = slotToUnequip === "weapon" ? "Arma (1)" : "Armadura (2)";
+      return [`O slot de ${slotName} já está vazio.`];
+    }
+
+    dispatch({ type: "UNEQUIP_ITEM", payload: slotToUnequip });
+    return [`Você desequipou: ${item.name}.`];
+  };
+
   const handleFindBattle = (): string[] => {
     if (!gameState.character) return ["Crie um personagem primeiro."];
     const charLevel = gameState.character.level;
@@ -1201,8 +1271,8 @@ export function useTerminalLogic() {
       `         (Poder Mágico: +${magicBoost}% | Duração Extra: +${magicDuration}t)`,
       `  -----------------------`,
       `--- Equipamento ---`,
-      `  Arma:  ${char.equipment.weapon?.name || "Nenhuma"}`,
-      `  Armadura: ${char.equipment.armor?.name || "Nenhuma"}`,
+      `  [1] Arma:  ${char.equipment.weapon?.name || "Nenhuma"}`,
+      `  [2] Armadura: ${char.equipment.armor?.name || "Nenhuma"}`,
     ];
     if (gameState.character.statusEffects.length > 0) {
       statsLines.push("--- Efeitos Ativos ---");
@@ -1291,7 +1361,8 @@ export function useTerminalLogic() {
     "  i | inventory  - Mostra seu inventário.",
     "  use [item]     - Usa um item (ex: Poção de Cura).",
     "  equip [item]   - Equipa um item do inventário.",
-    "  train          - Treina e melhora 1 atributo aleatório.",
+    "  unequip [item] - Remove um equipamento.",
+    "  train [str | dex | int] - Treina e melhora 1 atributo.",
     "  up [stat] [qtd] - Distribui pontos de atributo (STR, DEX, INT).",
     "  f | find battle - Procura por um monstro para lutar.",
     "  shop           - Mostra a loja (estoque rotativo).",
@@ -1392,6 +1463,41 @@ export function useTerminalLogic() {
 
     return () => clearInterval(interval);
   }, [!!gameState.character]);
+
+  const getItemDetails = (item: Item): string[] => {
+    const lines = [
+      `🔍 DETALHES: ${item.name}`,
+      `----------------------------------------`,
+      `Tipo: ${item.type} ${item.value ? `| Nível/Valor: ${item.value}` : ""}`,
+      `Descrição: ${item.description}`,
+      `Preço Base: ${item.price} G (Venda: ${Math.floor(item.price / 2)} G)`,
+    ];
+
+    if (item.type === "Equipment") {
+      const eq = item as Equipment;
+      const stats = Object.entries(eq.stats)
+        .map(([k, v]) => `${k.toUpperCase()}: +${v}`)
+        .join(" | ");
+      lines.push(`Slot: ${eq.slot.toUpperCase()}`);
+      lines.push(`Atributos: ${stats}`);
+      lines.push(`Tier: ${eq.tier}`);
+    }
+
+    if (item.type === "Potion") {
+      const pot = item as Potion;
+      lines.push(`Efeito: ${pot.effect.toUpperCase()}`);
+      if (pot.effect === "heal") {
+        lines.push(`Poder: Recupera ${pot.value} HP`);
+      } else if (pot.effect === "buff") {
+        lines.push(`Buff: ${pot.buffId}`);
+        lines.push(`Potência: ${pot.value} | Duração: ${pot.duration} turnos`);
+      } else if (pot.effect === "poison") {
+        lines.push(`Dano/Debuff: ${pot.value}`);
+      }
+    }
+
+    return lines;
+  };
 
   const executeCommand = (command: string) => {
     checkPassiveEvents();
@@ -1596,6 +1702,9 @@ export function useTerminalLogic() {
         response = [`Você aumentou ${stat.toUpperCase()} em ${amount}!`];
         break;
       }
+      case "unequip":
+        response = handleUnequip(args);
+        break;
       case "train": {
         if (!gameState.character) {
           response = ["Crie um personagem."];
@@ -1636,15 +1745,24 @@ export function useTerminalLogic() {
       }
       case "shop": {
         const stock = checkAndRefreshShop();
-        response = [
-          "--- Loja do Aventureiro ---",
-          "(O estoque muda a cada hora)",
-          ...stock.map(
-            (item, index) =>
-              `  ${index + 1}. ${item.name} (${item.type}) - ${item.price} G`
-          ),
-          "Use 'buy [numero]' para comprar.",
-        ];
+        if (args[0] === "info") {
+          const index = parseInt(args[1], 10) - 1;
+          if (isNaN(index) || index < 0 || index >= stock.length) {
+            response = [`Item inválido. Use 'shop info [1-3]'.`];
+          } else {
+            response = getItemDetails(stock[index]);
+          }
+        } else {
+          response = [
+            "--- Loja do Aventureiro ---",
+            "(O estoque muda a cada hora)",
+            ...stock.map(
+              (item, index) =>
+                `  ${index + 1}. ${item.name} (${item.type}) - ${item.price} G`
+            ),
+            "Use 'buy [numero]' para comprar ou 'shop info [numero]' para ver detalhes.",
+          ];
+        }
         break;
       }
       case "buy": {
@@ -1829,7 +1947,27 @@ export function useTerminalLogic() {
         break;
       case "inventory":
       case "i":
-        response = showInventory();
+        if (args[0] === "info") {
+          if (!gameState.character) {
+            response = ["Crie um personagem primeiro."];
+            break;
+          }
+          const query = args.slice(1).join(" "); // Pega o resto da string (nome ou numero)
+          if (!query) {
+            response = ["Uso: i info [numero ou nome]"];
+            break;
+          }
+
+          const item = findInList(query, gameState.character.inventory);
+
+          if (item) {
+            response = getItemDetails(item);
+          } else {
+            response = [`Item '${query}' não encontrado no inventário.`];
+          }
+        } else {
+          response = showInventory();
+        }
         break;
       case "abilities":
         response = showAbilities();
