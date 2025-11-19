@@ -1223,8 +1223,8 @@ export function useTerminalLogic() {
     dispatch({ type: "FIND_BATTLE", payload: combatMonster });
 
     return [
-      `!!! Um ${combatMonster.name} selvagem (Escalado para Nv ${charLevel}) aparece !!!`,
-      `  HP Estimado: ~${scaledHP} | Força: ${finalStr}`,
+      `!!! Um ${combatMonster.name} selvagem Nv ${charLevel} aparece !!!`,
+      `  HP Estimado: ~${scaledHP}`,
       "Digite 'attack', 'use', 'cast' ou 'run'.",
     ];
   };
