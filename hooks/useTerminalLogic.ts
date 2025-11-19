@@ -479,7 +479,6 @@ export function useTerminalLogic() {
     "Bem-vindo ao QuestTerm (v1.0.0)",
     "Portfólio interativo de Guilherme Delgado Martins.",
     "Digite 'help' para ver a lista de comandos.",
-    "Digite 'new game' para começar uma nova aventura.",
   ]);
 
   const [gameState, dispatch] = useReducer(gameReducer, initialGameState);
@@ -641,17 +640,27 @@ export function useTerminalLogic() {
             },
           });
 
-          setHistory((prev) => [
-            ...prev,
-            `Jogo salvo de '${newChar.name}' (Nível ${newChar.level}) carregado.`,
-          ]);
+          const loadMsg = `Jogo salvo de '${newChar.name}' (Nível ${newChar.level}) carregado.`;
+
           if (savedData.gameState === "IN_COMBAT") {
             setHistory((prev) => [
               ...prev,
-              `ATENÇÃO: Você está em combate com ${savedData.currentMonster.name}!`,
+              loadMsg,
+              `⚠️ ATENÇÃO: Você está em combate! Digite 'stats' ou ataque.`,
+            ]);
+          } else {
+            setHistory((prev) => [
+              ...prev,
+              loadMsg,
+              `Sugestão: Digite 'train' para treinar ou 'f' para buscar uma batalha.`,
             ]);
           }
         }
+      } else {
+        setHistory((prev) => [
+          ...prev,
+          "Digite 'new game' para começar uma nova aventura.",
+        ]);
       }
     } catch (err) {
       console.error("Falha ao carregar save", err);
@@ -1925,19 +1934,36 @@ export function useTerminalLogic() {
         return;
       case "new":
         if (args[0] === "game") {
+          if (gameState.character) {
+            response = [
+              "Você já possui um personagem salvo.",
+              "Use 'abandon character' se quiser apagar o atual e começar de novo.",
+            ];
+          } else {
+            dispatch({ type: "START_CREATION" });
+            response = [
+              "Iniciando criação...",
+              "Qual é o nome do seu aventureiro?",
+            ];
+          }
+        } else {
+          response = [`Comando '${command}' não encontrado.`];
+        }
+        break;
+
+      case "ng":
+        if (gameState.character) {
+          response = [
+            "Você já possui um personagem salvo.",
+            "Use 'abandon character' se quiser apagar o atual e começar de novo.",
+          ];
+        } else {
           dispatch({ type: "START_CREATION" });
           response = [
             "Iniciando criação...",
             "Qual é o nome do seu aventureiro?",
           ];
-        } else response = [`Comando '${command}' não encontrado.`];
-        break;
-      case "ng":
-        dispatch({ type: "START_CREATION" });
-        response = [
-          "Iniciando criação...",
-          "Qual é o nome do seu aventureiro?",
-        ];
+        }
         break;
       case "classes":
         response = listClasses();
